@@ -14,6 +14,20 @@ let tiers = [
 let maxFocusMinutes = 60.0
 let unit: Double = CommandLine.arguments.contains("--fast") ? 1 : 60  // seconds per "minute"
 
+// Tomato minutes: focus seconds per local day, e.g. ["2026-11-8": 4500]. --fast keeps a separate tally.
+let statsKey = unit == 60 ? "focusSeconds" : "focusSecondsFast"
+
+func todayKey() -> String {
+    let d = Calendar.current.dateComponents([.year, .month, .day], from: Date())
+    return "\(d.year!)-\(d.month!)-\(d.day!)"
+}
+
+func todayText() -> String {
+    let secs = UserDefaults.standard.dictionary(forKey: statsKey)?[todayKey()] as? Double ?? 0
+    let m = Int((secs + 0.5) / 60)
+    return "\(m) tomato minute\(m == 1 ? "" : "s") today"
+}
+
 func tomato(_ color: NSColor, size s: CGFloat) -> NSImage {
     NSImage(size: NSSize(width: s, height: s), flipped: false) { _ in
         color.setFill()
@@ -36,6 +50,8 @@ final class App: NSObject, NSApplicationDelegate, NSMenuDelegate {
     let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
     let toggleItem = NSMenuItem(title: "Start", action: #selector(toggle), keyEquivalent: "")
     let loginItem = NSMenuItem(title: "Open at Login", action: #selector(toggleLogin), keyEquivalent: "")
+    let todayItem = NSMenuItem(title: "", action: nil, keyEquivalent: "")  // no action = shown as info
+    var lastCount = Date()  // when focus time was last added to today's tally
     var tierItems: [NSMenuItem] = []
     var tierIndex = min(UserDefaults.standard.object(forKey: "tier") as? Int ?? 1, tiers.count - 1)
     var tier: Tier { tiers[tierIndex] }
@@ -51,6 +67,9 @@ final class App: NSObject, NSApplicationDelegate, NSMenuDelegate {
         item.button?.font = .monospacedDigitSystemFont(ofSize: NSFont.systemFontSize, weight: .regular)
         item.button?.imagePosition = .imageLeft
         let menu = NSMenu()
+        todayItem.image = tomato(tiers[1].color, size: 16)
+        menu.addItem(todayItem)
+        menu.addItem(.separator())
         menu.addItem(toggleItem)
         menu.addItem(NSMenuItem(title: "Reset", action: #selector(reset), keyEquivalent: ""))
         menu.addItem(.separator())
@@ -83,9 +102,21 @@ final class App: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
     }
 
+    // Adds focus time since the last count to today's tally. A gap over 5 s means the Mac slept: not counted.
+    func countFocus() {
+        guard !onBreak, let end else { return }
+        let gap = min(Date(), end).timeIntervalSince(lastCount)
+        lastCount = Date()
+        guard gap > 0, gap < 5 else { return }
+        var days = UserDefaults.standard.dictionary(forKey: statsKey) as? [String: Double] ?? [:]
+        days[todayKey(), default: 0] += gap * 60 / unit
+        UserDefaults.standard.set(days, forKey: statsKey)
+    }
+
     func run(_ seconds: Double) {
         left = seconds
         end = Date() + seconds
+        lastCount = Date()
         timer?.invalidate()
         timer = Timer(timeInterval: 1, target: self, selector: #selector(tick), userInfo: nil, repeats: true)
         RunLoop.main.add(timer!, forMode: .common)  // .common keeps it ticking while the menu is open
@@ -99,12 +130,14 @@ final class App: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     @objc func toggle() {
         guard let end else { return run(left) }
+        countFocus()
         left = max(0, end.timeIntervalSinceNow)
         stop()
         render()
     }
 
     @objc func tick() {
+        countFocus()
         guard let end, end.timeIntervalSinceNow <= 0 else { return render() }
         stop()
         left = 0
@@ -121,6 +154,7 @@ final class App: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
 
     @objc func reset() {
+        countFocus()
         stop()
         closeOverlay()
         onBreak = false
@@ -160,6 +194,7 @@ final class App: NSObject, NSApplicationDelegate, NSMenuDelegate {
             : tomato(tier.color, size: 16)
         item.button?.title = String(format: " %d:%02d", secs / 60, secs % 60)
         toggleItem.title = end == nil ? "Start" : "Pause"
+        todayItem.title = todayText()
         tierItems.forEach { $0.state = $0.tag == tierIndex ? .on : .off }
     }
 
@@ -198,7 +233,7 @@ final class App: NSObject, NSApplicationDelegate, NSMenuDelegate {
             let title = NSTextField(labelWithString: "\(tier.name) tomato done!")
             title.font = .boldSystemFont(ofSize: 40)
             title.textColor = .white
-            let sub = NSTextField(labelWithString: "You focused \(Int(focused)) min. Take a break.")
+            let sub = NSTextField(labelWithString: "You focused \(Int(focused)) min · \(todayText())")
             sub.font = .systemFont(ofSize: 20)
             sub.textColor = .white
             let next = button("5 min break, then next session", #selector(break5ThenNext), color: .controlAccentColor)
