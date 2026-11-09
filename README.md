@@ -8,6 +8,7 @@ A menu-bar focus timer for macOS. Pick a tomato, focus, then actually take the b
 - When time's up, a pulsing red screen covers every display until you choose: 5 min break then
   next session (Return), a 5 or 10 minute break, or 1 more minute.
 - Counts your tomato minutes for the day (actual focus time; breaks, pauses and sleep don't count).
+- Tomato Calendar: a month view with each day shaded by its tomato minutes.
 - Open at Login, Reduce Motion support, no data collected.
 
 ## Build

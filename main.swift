@@ -17,15 +17,106 @@ let unit: Double = CommandLine.arguments.contains("--fast") ? 1 : 60  // seconds
 // Tomato minutes: focus seconds per local day, e.g. ["2026-11-8": 4500]. --fast keeps a separate tally.
 let statsKey = unit == 60 ? "focusSeconds" : "focusSecondsFast"
 
-func todayKey() -> String {
-    let d = Calendar.current.dateComponents([.year, .month, .day], from: Date())
+func dayKey(_ date: Date = Date()) -> String {
+    let d = Calendar.current.dateComponents([.year, .month, .day], from: date)
     return "\(d.year!)-\(d.month!)-\(d.day!)"
 }
 
+func dayMinutes(_ date: Date) -> Int {
+    let secs = UserDefaults.standard.dictionary(forKey: statsKey)?[dayKey(date)] as? Double ?? 0
+    return Int((secs + 0.5) / 60)
+}
+
 func todayText() -> String {
-    let secs = UserDefaults.standard.dictionary(forKey: statsKey)?[todayKey()] as? Double ?? 0
-    let m = Int((secs + 0.5) / 60)
+    let m = dayMinutes(Date())
     return "\(m) tomato minute\(m == 1 ? "" : "s") today"
+}
+
+func hm(_ m: Int) -> String { m < 60 ? "\(m)m" : m % 60 == 0 ? "\(m / 60)h" : "\(m / 60)h \(m % 60)m" }
+
+// "Tomato intensity": one month, each day shaded by its tomato minutes (one hue: faint = little, deep = a lot).
+final class CalendarView: NSView {
+    static let steps: [(from: Int, label: String)] = [(0, "0"), (1, "1m"), (25, "25m"), (60, "1h"), (120, "2h"), (240, "4h+")]
+    static let alphas: [CGFloat] = [0, 0.2, 0.4, 0.6, 0.8, 1]
+    let cal = Calendar.current
+    let cell = NSSize(width: 60, height: 50), gap: CGFloat = 4, pad: CGFloat = 20
+    var month = Date()  // any day in the month shown
+    override var isFlipped: Bool { true }
+
+    init() {
+        super.init(frame: NSRect(x: 0, y: 0, width: 7 * 60 + 6 * 4 + 40, height: 520))
+        for (title, step) in [("‹", -1), ("›", 1)] {
+            let b = NSButton(title: title, target: self, action: #selector(shift))
+            b.tag = step
+            b.frame = NSRect(x: step < 0 ? pad : bounds.width - pad - 40, y: pad, width: 40, height: 28)
+            b.setAccessibilityLabel(step < 0 ? "Previous month" : "Next month")
+            addSubview(b)
+        }
+        setAccessibilityElement(true)
+        setAccessibilityRole(.staticText)
+    }
+    required init?(coder: NSCoder) { fatalError() }
+
+    @objc func shift(_ b: NSButton) {
+        month = cal.date(byAdding: .month, value: b.tag, to: month)!
+        needsDisplay = true
+    }
+
+    func text(_ s: String, _ p: NSPoint, _ size: CGFloat, _ color: NSColor = .labelColor,
+              weight: NSFont.Weight = .regular, centered: Bool = true) {
+        let a: [NSAttributedString.Key: Any] = [.font: NSFont.systemFont(ofSize: size, weight: weight), .foregroundColor: color]
+        let dx = centered ? (s as NSString).size(withAttributes: a).width / 2 : 0
+        (s as NSString).draw(at: NSPoint(x: p.x - dx, y: p.y), withAttributes: a)
+    }
+
+    override func draw(_: NSRect) {
+        let first = cal.dateInterval(of: .month, for: month)!.start
+        let days = cal.range(of: .day, in: .month, for: first)!.map { cal.date(byAdding: .day, value: $0 - 1, to: first)! }
+        let minutes = days.map(dayMinutes)
+        let f = DateFormatter()
+        f.setLocalizedDateFormatFromTemplate("MMMM yyyy")
+        let title = f.string(from: first), total = "\(hm(minutes.reduce(0, +))) of tomatoes this month"
+        text(title, NSPoint(x: bounds.midX, y: pad), 18, weight: .semibold)
+        text(total, NSPoint(x: bounds.midX, y: pad + 26), 12, .secondaryLabelColor)
+
+        let top = pad + 64, stride = cell.width + gap
+        for col in 0..<7 {
+            let symbol = cal.shortWeekdaySymbols[(col + cal.firstWeekday - 1) % 7]
+            text(symbol, NSPoint(x: pad + CGFloat(col) * stride + cell.width / 2, y: top), 11, .secondaryLabelColor)
+        }
+        let offset = (cal.component(.weekday, from: first) - cal.firstWeekday + 7) % 7
+        for (i, day) in days.enumerated() {
+            let slot = offset + i
+            let r = NSRect(x: pad + CGFloat(slot % 7) * stride, y: top + 20 + CGFloat(slot / 7) * (cell.height + gap),
+                           width: cell.width, height: cell.height)
+            let box = NSBezierPath(roundedRect: r, xRadius: 6, yRadius: 6)
+            let level = Self.steps.lastIndex { minutes[i] >= $0.from }!
+            (level == 0 ? NSColor.quaternaryLabelColor : NSColor.systemRed.withAlphaComponent(Self.alphas[level])).setFill()
+            box.fill()
+            if cal.isDateInToday(day) {
+                NSColor.labelColor.setStroke()
+                box.lineWidth = 2
+                box.stroke()
+            }
+            text("\(i + 1)", NSPoint(x: r.minX + 6, y: r.minY + 4), 11, level >= 3 ? .white : .secondaryLabelColor, centered: false)
+            if minutes[i] > 0 {
+                text(hm(minutes[i]), NSPoint(x: r.midX, y: r.maxY - 20), 12, level >= 3 ? .white : .labelColor, weight: .semibold)
+            }
+        }
+
+        // Legend: the six shades and where each starts.
+        let ly = top + 20 + 6 * (cell.height + gap) + 6
+        text("Tomato intensity (minutes per day)", NSPoint(x: bounds.midX, y: ly), 11, .secondaryLabelColor)
+        for (i, step) in Self.steps.enumerated() {
+            let r = NSRect(x: bounds.midX - 140 + CGFloat(i) * 48, y: ly + 20, width: 40, height: 14)
+            (i == 0 ? NSColor.quaternaryLabelColor : NSColor.systemRed.withAlphaComponent(Self.alphas[i])).setFill()
+            NSBezierPath(roundedRect: r, xRadius: 4, yRadius: 4).fill()
+            text(step.label, NSPoint(x: r.midX, y: r.maxY + 3), 10, .secondaryLabelColor)
+        }
+
+        let busy = zip(days, minutes).filter { $0.1 > 0 }.map { "\(cal.component(.day, from: $0.0)): \(hm($0.1))" }
+        setAccessibilityLabel("\(title), \(total). " + (busy.isEmpty ? "No tomato minutes yet." : busy.joined(separator: ", ")))
+    }
 }
 
 func tomato(_ color: NSColor, size s: CGFloat) -> NSImage {
@@ -52,6 +143,8 @@ final class App: NSObject, NSApplicationDelegate, NSMenuDelegate {
     let loginItem = NSMenuItem(title: "Open at Login", action: #selector(toggleLogin), keyEquivalent: "")
     let todayItem = NSMenuItem(title: "", action: nil, keyEquivalent: "")  // no action = shown as info
     var lastCount = Date()  // when focus time was last added to today's tally
+    let calendarView = CalendarView()
+    var calendarWindow: NSWindow?
     var tierItems: [NSMenuItem] = []
     var tierIndex = min(UserDefaults.standard.object(forKey: "tier") as? Int ?? 1, tiers.count - 1)
     var tier: Tier { tiers[tierIndex] }
@@ -69,6 +162,7 @@ final class App: NSObject, NSApplicationDelegate, NSMenuDelegate {
         let menu = NSMenu()
         todayItem.image = tomato(tiers[1].color, size: 16)
         menu.addItem(todayItem)
+        menu.addItem(NSMenuItem(title: "Tomato Calendar…", action: #selector(showCalendar), keyEquivalent: ""))
         menu.addItem(.separator())
         menu.addItem(toggleItem)
         menu.addItem(NSMenuItem(title: "Reset", action: #selector(reset), keyEquivalent: ""))
@@ -93,6 +187,23 @@ final class App: NSObject, NSApplicationDelegate, NSMenuDelegate {
         loginItem.state = SMAppService.mainApp.status == .enabled ? .on : .off
     }
 
+    @objc func showCalendar() {
+        if calendarWindow == nil {
+            let w = NSWindow(contentRect: calendarView.frame, styleMask: [.titled, .closable, .miniaturizable],
+                             backing: .buffered, defer: false)
+            w.title = "Tomato Calendar"
+            w.contentView = calendarView
+            w.isReleasedWhenClosed = false
+            w.center()
+            calendarWindow = w
+        }
+        calendarView.month = Date()
+        calendarView.needsDisplay = true
+        NSApp.activate()
+        calendarWindow?.makeKeyAndOrderFront(nil)
+        calendarWindow?.orderFrontRegardless()  // in case macOS declines to bring this menu-bar app forward
+    }
+
     @objc func toggleLogin() {
         let login = SMAppService.mainApp
         do {
@@ -109,7 +220,7 @@ final class App: NSObject, NSApplicationDelegate, NSMenuDelegate {
         lastCount = Date()
         guard gap > 0, gap < 5 else { return }
         var days = UserDefaults.standard.dictionary(forKey: statsKey) as? [String: Double] ?? [:]
-        days[todayKey(), default: 0] += gap * 60 / unit
+        days[dayKey(), default: 0] += gap * 60 / unit
         UserDefaults.standard.set(days, forKey: statsKey)
     }
 
@@ -195,6 +306,7 @@ final class App: NSObject, NSApplicationDelegate, NSMenuDelegate {
         item.button?.title = String(format: " %d:%02d", secs / 60, secs % 60)
         toggleItem.title = end == nil ? "Start" : "Pause"
         todayItem.title = todayText()
+        if calendarWindow?.isVisible == true { calendarView.needsDisplay = true }  // keep today's square live
         tierItems.forEach { $0.state = $0.tag == tierIndex ? .on : .off }
     }
 
