@@ -176,12 +176,25 @@ final class App: NSObject, NSApplicationDelegate, NSMenuDelegate {
     var timer: Timer?
     var overlays: [NSWindow] = []
     var groupsOn = false  // Firebase configured (plist bundled, or --emulator)
+    var countdown: Countdown?
 
     func applicationDidFinishLaunching(_: Notification) {
         groupsOn = configureFirebase()
         if groupsOn { GroupStore.shared.start() }
         if CommandLine.arguments.contains("--smoke") {  // firebase/tools/smoke.sh
             Task { exit(await GroupStore.shared.smoke()) }
+            return
+        }
+        if CommandLine.arguments.contains("--countdown-demo") {  // look at the three countdown screens, then quit
+            for (i, mode) in [CountdownMode.invite, .autoJoin, .starter].enumerated() {
+                DispatchQueue.main.asyncAfter(deadline: .now() + Double(i) * 13) {
+                    self.countdown?.close()
+                    self.countdown = Countdown(title: "Mina started a 🍅 Red tomato · 25 min", mode: mode,
+                                               startAt: Date() + 10, onJoin: {}, onSkip: {}, onCancel: {})
+                    self.countdown?.setJoinedNames(["Mina", "Alex"], waiting: ["Jun"])
+                }
+            }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 39) { exit(0) }
             return
         }
         item.button?.font = .monospacedDigitSystemFont(ofSize: NSFont.systemFontSize, weight: .regular)
@@ -465,19 +478,24 @@ final class App: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     // Self-drawn pill buttons: system buttons look disabled because this menu-bar app is never frontmost.
     func button(_ title: String, _ action: Selector, color: NSColor = NSColor(white: 1, alpha: 0.2)) -> NSButton {
-        let b = NSButton(title: title, target: self, action: action)
-        b.isBordered = false
-        b.wantsLayer = true
-        b.layer?.backgroundColor = color.cgColor
-        b.layer?.cornerRadius = 12
-        b.attributedTitle = NSAttributedString(string: title, attributes: [
-            .foregroundColor: NSColor.white, .font: NSFont.systemFont(ofSize: 16, weight: .semibold)])
-        NSLayoutConstraint.activate([
-            b.heightAnchor.constraint(equalToConstant: 44),
-            b.widthAnchor.constraint(equalToConstant: b.intrinsicContentSize.width + 40),
-        ])
-        return b
+        pillButton(title, target: self, action: action, color: color)
     }
+}
+
+// Self-drawn pill buttons for the red screen and the group countdown.
+func pillButton(_ title: String, target: AnyObject, action: Selector, color: NSColor = NSColor(white: 1, alpha: 0.2)) -> NSButton {
+    let b = NSButton(title: title, target: target, action: action)
+    b.isBordered = false
+    b.wantsLayer = true
+    b.layer?.backgroundColor = color.cgColor
+    b.layer?.cornerRadius = 12
+    b.attributedTitle = NSAttributedString(string: title, attributes: [
+        .foregroundColor: NSColor.white, .font: NSFont.systemFont(ofSize: 16, weight: .semibold)])
+    NSLayoutConstraint.activate([
+        b.heightAnchor.constraint(equalToConstant: 44),
+        b.widthAnchor.constraint(equalToConstant: b.intrinsicContentSize.width + 40),
+    ])
+    return b
 }
 
 let app = NSApplication.shared
