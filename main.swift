@@ -175,8 +175,10 @@ final class App: NSObject, NSApplicationDelegate, NSMenuDelegate {
     var end: Date?      // set while running; wall-clock, so sleep doesn't drift it
     var timer: Timer?
     var overlays: [NSWindow] = []
+    var groupsOn = false  // Firebase configured (plist bundled, or --emulator)
 
     func applicationDidFinishLaunching(_: Notification) {
+        groupsOn = configureFirebase()
         item.button?.font = .monospacedDigitSystemFont(ofSize: NSFont.systemFontSize, weight: .regular)
         item.button?.imagePosition = .imageLeft
         let menu = NSMenu()

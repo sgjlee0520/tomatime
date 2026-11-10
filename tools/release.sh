@@ -1,5 +1,5 @@
 #!/bin/zsh
-# Mac App Store build: archive, sign (Apple Distribution + profile "Tomatime Store 20261109"),
+# Mac App Store build: archive, sign (Apple Distribution + profile "Tomatime Store 20261110"),
 # export build/export/Tomatime.pkg signed with the installer cert.
 # Usage: tools/release.sh [--upload]   Bump CURRENT_PROJECT_VERSION in project.yml before every upload.
 set -e
@@ -11,8 +11,8 @@ xcodegen generate --quiet
 rm -rf build/Tomatime.xcarchive build/export
 xcodebuild -project Tomatime.xcodeproj -scheme Tomatime -configuration Release \
   -destination 'generic/platform=macOS' -archivePath build/Tomatime.xcarchive -quiet archive \
-  CODE_SIGN_IDENTITY="Apple Distribution" PROVISIONING_PROFILE_SPECIFIER="Tomatime Store 20261109" \
-  CODE_SIGN_ENTITLEMENTS=tools/Store.entitlements OTHER_CODE_SIGN_FLAGS="--keychain $K"
+  TOMATIME_SIGN_IDENTITY="Apple Distribution" TOMATIME_PROFILE="Tomatime Store 20261110" \
+  TOMATIME_ENTITLEMENTS=tools/Store.entitlements OTHER_CODE_SIGN_FLAGS="--keychain $K"
 xcodebuild -exportArchive -archivePath build/Tomatime.xcarchive -exportPath build/export \
   -exportOptionsPlist tools/ExportOptions.plist -quiet
 pkgutil --check-signature build/export/Tomatime.pkg | sed -n 1,4p
