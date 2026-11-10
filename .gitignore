@@ -4,3 +4,7 @@ Info.plist
 Tomatime.entitlements
 .DS_Store
 .superpowers/
+firebase/node_modules/
+firebase/*.log
+GoogleService-Info.plist
+firebase/*-debug.log

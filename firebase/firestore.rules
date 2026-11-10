@@ -1,0 +1,86 @@
+rules_version = '2';
+// Tomatime Groups. Tested by firebase/rules.test.mjs (tools/test.sh).
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function signedIn() { return request.auth != null; }
+    function me() { return request.auth.uid; }
+    function groupPath(gid) { return /databases/$(database)/documents/groups/$(gid); }
+    function isMember(gid) { return signedIn() && me() in get(groupPath(gid)).data.memberUIDs; }
+
+    match /users/{uid} {
+      allow read, write: if signedIn() && me() == uid;
+    }
+
+    // Invite code → group. Anyone signed in may look up one code; nobody may list them.
+    match /codes/{code} {
+      allow get: if signedIn();
+      allow create: if signedIn()
+        && request.resource.data.keys().hasOnly(['groupID'])
+        && getAfter(groupPath(request.resource.data.groupID)).data.ownerUID == me()
+        && getAfter(groupPath(request.resource.data.groupID)).data.code == code;
+      allow delete: if signedIn() && get(groupPath(resource.data.groupID)).data.ownerUID == me();
+    }
+
+    match /groups/{gid} {
+      function changed() { return request.resource.data.diff(resource.data).affectedKeys(); }
+      function oldUIDs() { return resource.data.memberUIDs; }
+      function newUIDs() { return request.resource.data.memberUIDs; }
+      function isOwner() { return resource.data.ownerUID == me(); }
+      function goodName() {
+        return request.resource.data.name is string
+          && request.resource.data.name.size() > 0 && request.resource.data.name.size() <= 40;
+      }
+      // Adding yourself. The code is checked on your new member doc, written in the same batch.
+      function joining() {
+        let mine = getAfter(/databases/$(database)/documents/groups/$(gid)/members/$(me())).data;
+        return !(me() in oldUIDs())
+          && changed().hasOnly(['memberUIDs'])
+          && newUIDs() == oldUIDs().concat([me()])
+          && newUIDs().size() <= 6
+          && mine.joinCode == resource.data.code
+          && (resource.data.unlocked == true || mine.hasPass == true);
+      }
+      // Removing yourself; an owner who leaves must hand ownership to someone still in the group.
+      function leaving() {
+        return me() in oldUIDs()
+          && changed().hasOnly(['memberUIDs', 'ownerUID'])
+          && newUIDs() == oldUIDs().removeAll([me()])
+          && (request.resource.data.ownerUID == resource.data.ownerUID
+                ? !isOwner()
+                : isOwner() && request.resource.data.ownerUID in newUIDs());
+      }
+      function ownerRemoving() {
+        return isOwner()
+          && changed().hasOnly(['memberUIDs'])
+          && me() in newUIDs()
+          && oldUIDs().hasAll(newUIDs())
+          && newUIDs().size() == oldUIDs().size() - 1;
+      }
+      function ownerEditing() { return isOwner() && changed().hasOnly(['name', 'code']) && goodName(); }
+
+      allow read: if signedIn() && me() in resource.data.memberUIDs;
+      allow create: if signedIn()
+        && request.resource.data.keys().hasOnly(['name', 'code', 'ownerUID', 'memberUIDs', 'unlocked', 'createdAt'])
+        && request.resource.data.ownerUID == me()
+        && request.resource.data.memberUIDs == [me()]
+        && request.resource.data.unlocked is bool
+        && goodName()
+        && existsAfter(/databases/$(database)/documents/codes/$(request.resource.data.code));
+      allow update: if signedIn() && (joining() || leaving() || ownerRemoving() || ownerEditing());
+      allow delete: if signedIn() && resource.data.memberUIDs == [me()];   // the last member leaving
+
+      match /members/{uid} {
+        allow read: if isMember(gid);
+        allow create: if signedIn() && me() == uid
+          && me() in getAfter(groupPath(gid)).data.memberUIDs
+          && request.resource.data.keys().hasOnly(['name', 'joinedAt', 'hasPass', 'status', 'secondsByDevice', 'joinCode']);
+        allow update: if signedIn() && me() == uid && isMember(gid);
+        allow delete: if signedIn() && (me() == uid || get(groupPath(gid)).data.ownerUID == me());
+      }
+
+      match /sessions/{sid} {
+        allow read, write: if isMember(gid);
+      }
+    }
+  }
+}
