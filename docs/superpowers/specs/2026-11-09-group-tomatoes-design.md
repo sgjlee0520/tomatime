@@ -99,6 +99,8 @@ Pause / Reset / tiers / Custom …       ─────────
 - **Groups ▸**: New Group…, Join with Code…, Restore Purchases, and per group: rename, leave (my call).
 - The menu-bar item shows a small **number of friends focusing right now** next to the timer
   (played back). Counts each person once even if they share several groups with you (my call).
+  **Groups ▸ Show Friends Focusing in Menu Bar** turns the number off, for when you want to focus on
+  yourself (user, 2026-11-10); on by default, per Mac.
 
 ### Starting a group tomato (user, screens approved in mockups)
 

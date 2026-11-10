@@ -176,9 +176,10 @@ extension App {
         store.publish(status: st)
     }
 
-    // The timer, plus friends focusing right now in bold red.
+    // The timer, plus friends focusing right now in bold red (unless hidden in Groups ▸).
     func statusTitle(_ base: String) {
-        let n = groupsOn ? friendsFocusing(store.groups, me: store.uid ?? "", now: Date()) : 0
+        let show = groupsOn && !UserDefaults.standard.bool(forKey: "hideFriendsCount")
+        let n = show ? friendsFocusing(store.groups, me: store.uid ?? "", now: Date()) : 0
         guard n > 0, let font = item.button?.font else { item.button?.title = base; return }
         let s = NSMutableAttributedString(string: base, attributes: [.font: font, .foregroundColor: NSColor.labelColor])
         s.append(NSAttributedString(string: " \(n)", attributes: [
@@ -264,6 +265,10 @@ extension App {
         sub.addItem(groupItem("New Group…", #selector(newGroupTapped)))
         sub.addItem(groupItem("Join with Code…", #selector(joinCodeTapped)))
         if store.signedIn { sub.addItem(groupItem(store.myName.map { "Change My Name (\($0))…" } ?? "Set My Name…", #selector(changeNameTapped))) }
+        sub.addItem(.separator())
+        let count = groupItem("Show Friends Focusing in Menu Bar", #selector(toggleFriendsCount))
+        count.state = UserDefaults.standard.bool(forKey: "hideFriendsCount") ? .off : .on
+        sub.addItem(count)
         mi.submenu = sub
         return mi
     }
@@ -304,6 +309,12 @@ extension App {
         case .running: store.setJoined(gid, joined: true); startGroupTomato(gid, s)
         case .over: break
         }
+    }
+
+    @objc func toggleFriendsCount() {
+        UserDefaults.standard.set(!UserDefaults.standard.bool(forKey: "hideFriendsCount"), forKey: "hideFriendsCount")
+        render()
+        rebuildGroupMenu()
     }
 
     @objc func toggleAutoJoin(_ sender: NSMenuItem) {
