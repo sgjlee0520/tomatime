@@ -27,6 +27,9 @@ FirebaseAuth, FirebaseFirestore), StoreKit 2, AuthenticationServices; Node 26 + 
   `com.sgjlee.tomatime.personalpass` ($0.99, non-consumable, "Personal Pass").
 - A group is joinable if it was created by a Group Pass holder (`unlocked`, stamped at creation, never
   revoked) or the joiner has a pass (Group Pass counts as a Personal Pass).
+- **Groups are free until the Paid Apps agreement is active** (user, 2026-11-10): `let groupsFree = true` in
+  `GroupRules.swift`; everyone counts as a Group Pass holder, so groups are created `unlocked` and no Buy/Restore
+  items show. Task 5 is deferred; it flips `groupsFree` to false and wires StoreKit in.
 - Nothing starts on a Mac unless its user clicked Join or turned on auto-join for that group.
 - Solo Tomatime keeps working with no purchase, no network, no sign-in.
 - Store-signed builds only get Apple capabilities (iCloud KVS, Sign in with Apple); ad-hoc builds
@@ -61,6 +64,7 @@ FirebaseAuth, FirebaseFirestore), StoreKit 2, AuthenticationServices; Node 26 + 
 **Interfaces — Produces** (all in `Groups/GroupRules.swift`, Foundation only):
 ```swift
 let maxGroupSize = 6, countdownSeconds = 10, groupBreakMinutes = 10.0, activeMacSeconds = 120.0
+let groupsFree = true   // until the Paid Apps agreement; Task 5 flips it
 func dayKey(_ date: Date = Date()) -> String                       // moved unchanged
 enum MemberState: String { case focus, rest = "break", idle }
 struct MemberStatus: Equatable { var state: MemberState; var tierName: String; var minutes: Double
@@ -255,7 +259,7 @@ read timestamps with `serverTimestampBehavior: .estimate`.
 
 - [ ] **Step 5: Commit** `"Groups: GroupStore + emulator smoke"`.
 
-### Task 5: Passes (StoreKit 2) + App Store products
+### Task 5: Passes (StoreKit 2) + App Store products — DEFERRED until the Paid Apps agreement is active
 
 **Files:** Create `Groups/Purchases.swift`; Modify `tools/asc.py` usage only (no repo change needed beyond a
 `tools/iap.py` one-off that creates the products).
@@ -313,7 +317,8 @@ styling (move it to a free function if needed).
 
 **Files:** Create `Groups/GroupsUI.swift` (`extension App`); Modify `main.swift` (call sites only).
 
-**Consumes:** `GroupStore`, `Purchases`, `Countdown`, Task 1 functions.
+**Consumes:** `GroupStore`, `Countdown`, Task 1 functions. Pass checks use `groupsFree` (no `Purchases` yet):
+create with `unlocked: true`, join with `hasPass: true`, and hide `Buy …` / `Restore Purchases`.
 
 Menu (layout B), inserted after "Tomato Calendar…":
 - Per group: `"👥 \(name)"` with right side `"\(n) focusing"` (or `"\(count) members"` when 0), submenu:
@@ -372,8 +377,7 @@ are stored on Google Firebase only when you use Groups; Sign in with Apple; how 
 `project.yml` (MARKETING_VERSION "1.2", CURRENT_PROJECT_VERSION "6").
 
 - [ ] **Step 1:** Deploy rules (`firebase deploy --only firestore:rules`), `tools/release.sh --upload`, wait for VALID.
-- [ ] **Step 2: Owner checklist** (give literally): install TestFlight 1.2 (6) on both Macs; sign in; buy Group
-  Pass (sandbox, free); create "Us"; send the code to a second person with a Mac; run a group tomato; check
+- [ ] **Step 2: Owner checklist** (give literally): install TestFlight 1.2 (6) on both Macs; sign in; create "Us"; send the code to a second person with a Mac; run a group tomato; check
   Pause, the 10-min group break, both Macs closing the countdown, calendar tab; turn Wi-Fi off and try "Start
   group tomato" (alert, solo timer fine).
 - [ ] **Step 3:** Update the privacy page in the app-privacy repo and App Privacy answers in App Store Connect

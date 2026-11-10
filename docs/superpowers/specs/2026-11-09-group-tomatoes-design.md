@@ -71,6 +71,8 @@ person's Apple ID.
 - A group unlocked by its creator's Group Pass **stays unlocked** for good, even if the creator leaves
   or is refunded: the unlock is stamped when the group is made (my call: simpler and kinder).
 - Standard **Restore Purchases** item (App Store requirement).
+- **Until the Paid Apps agreement is active, groups are free for everyone** (user, 2026-11-10). Groups
+  created then stay unlocked for good (the stamped-unlock rule above); the passes ship in a later version.
 
 ### Owner (my call)
 
