@@ -21,22 +21,53 @@
 </head>
 <body>
 <h1>Tomatime — Privacy Policy</h1>
-<p class="meta"><strong>Last updated:</strong> 2026-11-08<br>
+<p class="meta"><strong>Last updated:</strong> 2026-11-10<br>
 Developer: Songgun Lee<br>
 Contact: yagurootajum@gmail.com<br>
 App: Tomatime for Mac (<code>com.sgjlee.tomatime</code>)</p>
 
 <h2>Summary</h2>
-<p>Tomatime collects no data. It has no account, no servers, no analytics, no ads and no third-party SDKs. It makes no network requests.</p>
+<p>Tomatime has no ads, no analytics and no tracking, and never sells or shares data. Used on its own, it keeps
+everything on your Mac (and, if you use iCloud, on your other Macs). Only if you choose to use <strong>Groups</strong>
+(focusing together with friends) does it store a few things online, as described below, so the people in your
+groups can see them.</p>
 
 <h2>What stays on your Mac</h2>
 <ul>
-  <li><strong>Your chosen tomato size</strong> (20, 25, 45 or 60 minutes), saved in the app's own storage so it is remembered next time. It is deleted when you delete the app.</li>
-  <li><strong>Open at Login</strong>, only if you turn it on. macOS keeps this setting, and you can turn it off in the menu or in System Settings → General → Login Items.</li>
+  <li><strong>Your settings</strong>: the tomato size you picked, auto-join choices for your groups, and Open at Login
+  (macOS keeps that one; turn it off in the menu or in System Settings → General → Login Items).</li>
+  <li><strong>Your tomato minutes</strong>: how many minutes you focused each day, for the menu and the Tomato Calendar.</li>
+  <li>All of this is in the app's own storage and is deleted when you delete the app.</li>
 </ul>
 
+<h2>Your other Macs (iCloud)</h2>
+<p>If you're signed in to iCloud, each Mac saves its daily tomato minutes in your own iCloud storage, so the totals
+add up across your Macs. Apple stores this under your Apple Account; the developer can't see it. You can turn it off
+by turning off iCloud for the app in System Settings → your name → iCloud.</p>
+
+<h2>Groups (optional, version 1.2 and later)</h2>
+<p>Groups only start when you choose Groups → Sign in with Apple in the menu. Tomatime asks Apple for no name and
+no email. Then the following is stored with Google Firebase (Firebase Authentication and Cloud Firestore), which
+Tomatime uses as its online service:</p>
+<ul>
+  <li>an account identifier from Sign in with Apple;</li>
+  <li>the <strong>display name</strong> you type;</li>
+  <li>the <strong>groups</strong> you're in, their names and invite codes;</li>
+  <li>your <strong>live status</strong>: focusing (tomato size and when it ends), on a break, or idle;</li>
+  <li>your <strong>daily tomato minutes</strong>, only from the day you joined each group, listed under a random
+  ID that Tomatime makes for each of your Macs (not a hardware ID).</li>
+</ul>
+<p><strong>Who sees it:</strong> only the people in your groups, and only for the groups you share with them. The
+developer can technically access the stored data to run the service, and doesn't look at it or use it for anything
+else. It is not used for advertising or tracking.</p>
+<p><strong>Leaving and deleting:</strong> leaving a group deletes your status and minutes in that group (the last
+person to leave deletes the group). Groups → <strong>Delete My Groups Account…</strong> leaves all your groups,
+deletes your display name and account, and revokes Tomatime's Sign in with Apple access. Your tomato minutes on
+your Mac stay. You can also ask for deletion by email.</p>
+
 <h2>Children</h2>
-<p>Tomatime collects no personal information from anyone, including children.</p>
+<p>Tomatime does not knowingly collect personal information from children. Groups are optional and require Sign in
+with Apple.</p>
 
 <h2>Changes</h2>
 <p>If this policy changes, the date above changes and the new policy is posted on this page.</p>
@@ -45,7 +76,9 @@ App: Tomatime for Mac (<code>com.sgjlee.tomatime</code>)</p>
 <ul>
   <li>Tomatime lives in the menu bar (top right of the screen); it has no Dock icon or window. Click the tomato and countdown to open its menu.</li>
   <li>Pick a tomato: green 20 min, red 25 min, golden 45 min, diamond 60 min. Then click <strong>Start</strong>.</li>
-  <li>When a session ends, a red screen covers your displays until you choose a break or one more minute. Focus sessions never run longer than 60 minutes.</li>
+  <li>When a session ends, a red screen covers your displays until you choose a break, one more minute, or End session (Esc). Focus sessions never run longer than 60 minutes.</li>
+  <li><strong>Custom tomato…</strong> lets you type any length from 1 to 60 minutes. <strong>Tomato Calendar…</strong> shows your minutes per day.</li>
+  <li><strong>Groups</strong>: Groups → New Group… gives you an invite code to send; friends choose Groups → Join with Code…. Start a group tomato from the group's line in the menu; everyone in it gets a 10-second countdown. Pause takes only you out.</li>
   <li>If you use Reduce Motion (System Settings → Accessibility → Display), the red screen stays steady instead of pulsing.</li>
 </ul>
 <p>Questions or problems: <a href="mailto:yagurootajum@gmail.com">yagurootajum@gmail.com</a></p>

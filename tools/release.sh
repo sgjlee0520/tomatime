@@ -4,6 +4,7 @@
 # Usage: tools/release.sh [--upload]   Bump CURRENT_PROJECT_VERSION in project.yml before every upload.
 set -e
 cd "${0:A:h}/.."
+[[ -f GoogleService-Info.plist ]] || { echo "GoogleService-Info.plist missing (gitignored): the build would ship without Groups"; exit 1; }
 K=~/.appstoreconnect/distribution/sign.keychain-db
 security unlock-keychain -p "" $K
 security list-keychains -d user -s $K ~/Library/Keychains/login.keychain-db
