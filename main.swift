@@ -455,6 +455,9 @@ final class OverlayWindow: NSPanel {
             if !inGroup { next.keyEquivalent = "\r" }
             var others = [button("5 min break", #selector(break5)), button("10 min break", #selector(break10))]
             if canExtend { others.append(button("1 more minute", #selector(oneMore))) }
+            let done = button("End session", #selector(resetTapped))  // no break: back to a fresh tomato, not started
+            done.keyEquivalent = "\u{1b}"  // Esc
+            others.append(done)
             let row1 = NSStackView(views: [next, button("10 min break, then next session", #selector(break10ThenNext))])
             let row2 = NSStackView(views: others)
             [row1, row2].forEach { $0.spacing = 16 }
