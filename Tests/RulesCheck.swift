@@ -34,7 +34,7 @@ func group(_ members: [Member], unlocked: Bool = true) -> TomatoGroup {
 }
 
 @main struct RulesCheck {
-    static func main() {
+    static func main() async {
         // joinVerdict
         let two = group([mk("a"), mk("b")])
         check(joinVerdict(two, uid: "new", hasPass: false) == .ok, "unlocked group, no pass → ok")
@@ -125,6 +125,16 @@ func group(_ members: [Member], unlocked: Bool = true) -> TomatoGroup {
         let later = session(id: "x", data: ["round": 2, "startedBy": "a", "starterName": "A", "tierName": "Red",
                                             "minutes": 25.0, "createdAt": t0, "startAt": t0 + 900, "cancelled": false])
         check(later?.startAt == t0 + 900, "stored startAt wins")
+
+        // withTimeout gives up on work that ignores cancellation (Firestore while offline)
+        let began = Date()
+        var timedOut = false
+        do {
+            try await withTimeout(0.2) {
+                await withCheckedContinuation { c in DispatchQueue.global().asyncAfter(deadline: .now() + 3) { c.resume() } }
+            }
+        } catch GroupError.offline { timedOut = true } catch {}
+        check(timedOut && Date().timeIntervalSince(began) < 1, "timeout returns in time (took \(Date().timeIntervalSince(began)) s)")
 
         print("rules ok")
     }

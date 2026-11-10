@@ -179,6 +179,11 @@ final class App: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     func applicationDidFinishLaunching(_: Notification) {
         groupsOn = configureFirebase()
+        if groupsOn { GroupStore.shared.start() }
+        if CommandLine.arguments.contains("--smoke") {  // firebase/tools/smoke.sh
+            Task { exit(await GroupStore.shared.smoke()) }
+            return
+        }
         item.button?.font = .monospacedDigitSystemFont(ofSize: NSFont.systemFontSize, weight: .regular)
         item.button?.imagePosition = .imageLeft
         let menu = NSMenu()

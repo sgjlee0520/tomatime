@@ -154,3 +154,33 @@ func session(id: String, data: [String: Any]) -> GroupSession? {
                         cancelled: data["cancelled"] as? Bool ?? false, joined: data["joined"] as? [String] ?? [],
                         nextJoined: data["nextJoined"] as? [String] ?? [])
 }
+
+enum GroupError: LocalizedError {
+    case offline, notSignedIn, noSuchCode, full, notAllowed
+    var errorDescription: String? {
+        switch self {
+        case .offline: "Couldn't reach Tomatime Groups. Check your connection."
+        case .notSignedIn: "Sign in with Apple first."
+        case .noSuchCode: "No group has that invite code. Check it and try again."
+        case .full: "This group is full (6 people)."
+        case .notAllowed: "You can't do that in this group."
+        }
+    }
+}
+
+// Firestore waits forever while offline; user actions give up after 10 s instead.
+// Not a task group: a group waits for every child, and Firestore's waits ignore cancellation.
+func withTimeout<T>(_ seconds: Double = 10, _ work: @escaping () async throws -> T) async throws -> T {
+    let lock = NSLock()
+    var done = false
+    func once(_ f: () -> Void) { lock.lock(); defer { lock.unlock() }; if !done { done = true; f() } }
+    return try await withCheckedThrowingContinuation { c in
+        Task {
+            do { let v = try await work(); once { c.resume(returning: v) } } catch { once { c.resume(throwing: error) } }
+        }
+        Task {
+            try? await Task.sleep(for: .seconds(seconds))
+            once { c.resume(throwing: GroupError.offline) }
+        }
+    }
+}
