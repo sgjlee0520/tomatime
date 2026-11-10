@@ -22,7 +22,9 @@ func configureFirebase() -> Bool {
         let settings = Firestore.firestore().settings
         settings.host = "127.0.0.1:8181"
         settings.isSSLEnabled = false
+        settings.cacheSettings = MemoryCacheSettings()  // every test run starts clean, like a new user
         Firestore.firestore().settings = settings
+        try? Auth.auth().signOut()
         return true
     }
     guard Bundle.main.path(forResource: "GoogleService-Info", ofType: "plist") != nil else { return false }
