@@ -188,8 +188,8 @@ final class OverlayWindow: NSPanel {
             return
         }
         if CommandLine.arguments.contains("--rest-demo") {  // the last minute of a break, then quit
-            rest = RestCountdown(endAt: Date() + 60, last: 1)
-            DispatchQueue.main.asyncAfter(deadline: .now() + 62) { exit(0) }
+            rest = RestCountdown(endAt: Date() + Double(restCountdownSeconds), last: 1)
+            DispatchQueue.main.asyncAfter(deadline: .now() + Double(restCountdownSeconds + 2)) { exit(0) }
             return
         }
         if CommandLine.arguments.contains("--countdown-demo") {  // look at the three countdown screens, then quit
@@ -420,7 +420,7 @@ final class OverlayWindow: NSPanel {
     // The last minute of a break that starts the next tomato counts down on screen (RestCountdown).
     func updateRestCountdown() {
         let last = group.gid != nil ? countdownSeconds + 1 : 1
-        if onBreak, autoNext || group.gid != nil, let end, end.timeIntervalSinceNow <= 60,
+        if onBreak, autoNext || group.gid != nil, let end, end.timeIntervalSinceNow <= Double(restCountdownSeconds),
            end.timeIntervalSinceNow > Double(last - 1) {
             if rest?.endAt != end { rest?.close(); rest = RestCountdown(endAt: end, last: last) }
         } else {

@@ -128,6 +128,10 @@ final class Countdown: NSObject {
     }
 }
 
+// How long the end-of-break countdown runs. The user liked 60 (2026-11-10) but may change it after customer
+// feedback: e.g. 30, or the whole break counting down on screen.
+let restCountdownSeconds = 60
+
 let bigNumber: CGFloat = 0.62  // font size / screen height; the glyphs come out about 70% of the screen height
 
 func numberLayer(_ screen: NSScreen) -> CATextLayer {
@@ -168,7 +172,7 @@ func pulse(_ layer: CATextLayer, _ text: String) {
     layer.add(group, forKey: "pulse")
 }
 
-// The last minute of a break that starts the next tomato: 60…`last`, each number fading out while it grows,
+// The last minute of a break that starts the next tomato: restCountdownSeconds…`last`, each number fading out while it grows,
 // starting small in the top-right corner (near the menu-bar timer) and getting bigger and closer to the
 // middle each second, up to the group countdown's size. No tint, clicks pass through: it's still your break.
 final class RestCountdown: NSObject {
@@ -216,9 +220,9 @@ final class RestCountdown: NSObject {
     private func tick() {
         let n = Int(endAt.timeIntervalSinceNow.rounded(.up))
         if n < last { return close() }
-        guard n != shown, n <= 60 else { return }
+        guard n != shown, n <= restCountdownSeconds else { return }
         shown = n
-        let p = min(1, max(0, CGFloat(60 - n) / CGFloat(60 - last)))
+        let p = min(1, max(0, CGFloat(restCountdownSeconds - n) / CGFloat(restCountdownSeconds - last)))
         let e = p * p  // small for a long while, then grows faster as the start nears
         for (layer, size) in numbers {
             let font = size.height * (0.07 + (bigNumber - 0.07) * e)

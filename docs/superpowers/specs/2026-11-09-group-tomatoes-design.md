@@ -150,6 +150,8 @@ Pause / Reset / tiers / Custom …       ─────────
   second they get bigger and closer to the middle, up to the group countdown's size. No tint, clicks pass
   through (my call). In a group break the group's own 10-second countdown takes over at 10 (my call).
   Plain breaks (no next tomato) have none (my call: nothing starts after them).
+  The owner approved the look; **open to change after customer feedback**: 30 seconds instead of 60, or
+  the whole break counting down on screen (`restCountdownSeconds` in Groups/Countdown.swift).
 
 ### Tomato Calendar (user)
 
