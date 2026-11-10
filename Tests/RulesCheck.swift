@@ -91,7 +91,7 @@ func group(_ members: [Member], unlocked: Bool = true) -> TomatoGroup {
         // sessionPhase
         func sess(startAt: Date, minutes: Double = 25, cancelled: Bool = false) -> GroupSession {
             GroupSession(id: "s", round: 1, startedBy: "a", starterName: "A", tierName: "Red", minutes: minutes,
-                         startAt: startAt, cancelled: cancelled, joined: [], nextJoined: [])
+                         startAt: startAt, cancelled: cancelled, joined: [], nextJoined: [], devices: [:])
         }
         check(sessionPhase(sess(startAt: t0 + 7), now: t0) == .countdown(7), "countdown 7")
         check(sessionPhase(sess(startAt: t0 + 6.2), now: t0) == .countdown(7), "countdown rounds up")
@@ -119,12 +119,31 @@ func group(_ members: [Member], unlocked: Bool = true) -> TomatoGroup {
                                         "secondsByDevice": ["d": [today: 60.0]]])
         check(m?.status == s && m?.name == "Mina" && m?.hasPass == true && m?.secondsByDevice["d"]?[today] == 60,
               "member round trip")
-        let first = session(id: "x", data: ["round": 1, "startedBy": "a", "starterName": "A", "tierName": "Red",
-                                            "minutes": 25.0, "createdAt": t0, "cancelled": false, "joined": ["a"]])
+        let first = session(data: ["id": "r1", "round": 1, "startedBy": "a", "starterName": "A", "tierName": "Red",
+                                   "minutes": 25.0, "createdAt": t0, "cancelled": false, "joined": ["a"],
+                                   "devices": ["a": "macA"]])
         check(first?.startAt == t0 + 10 && first?.nextJoined == [], "round 1 starts 10 s after createdAt")
-        let later = session(id: "x", data: ["round": 2, "startedBy": "a", "starterName": "A", "tierName": "Red",
-                                            "minutes": 25.0, "createdAt": t0, "startAt": t0 + 900, "cancelled": false])
-        check(later?.startAt == t0 + 900, "stored startAt wins")
+        check(first?.id == "r1" && first?.devices == ["a": "macA"], "round id and devices come from the data")
+        let later = session(data: ["id": "r2", "round": 2, "startedBy": "a", "starterName": "A", "tierName": "Red",
+                                   "minutes": 25.0, "createdAt": t0, "startAt": t0 + 900, "cancelled": false])
+        check(later?.startAt == t0 + 900 && later?.devices == [:], "stored startAt wins")
+
+        // countdownMode: what this Mac shows when a group tomato's countdown begins (nil = nothing)
+        func cd(round: Int = 1, joined: [String] = ["a"], devices: [String: String] = ["a": "macA"]) -> GroupSession {
+            GroupSession(id: "s", round: round, startedBy: "a", starterName: "A", tierName: "Red", minutes: 25,
+                         startAt: t0 + 10, cancelled: false, joined: joined, nextJoined: [], devices: devices)
+        }
+        check(countdownMode(cd(), me: "a", device: "macA", autoJoin: false, idleSeconds: 0) == .starter, "starter's Mac")
+        check(countdownMode(cd(), me: "a", device: "macB", autoJoin: true, idleSeconds: 0) == nil, "starter's other Mac: nothing")
+        check(countdownMode(cd(), me: "b", device: "macC", autoJoin: false, idleSeconds: 0) == .invite, "invite")
+        check(countdownMode(cd(), me: "b", device: "macC", autoJoin: true, idleSeconds: 30) == .autoJoin, "auto-join, Mac in use")
+        check(countdownMode(cd(), me: "b", device: "macC", autoJoin: true, idleSeconds: 300) == .invite, "auto-join, idle Mac: asks")
+        let next = cd(round: 2, joined: ["a", "b"], devices: ["a": "macA", "b": "macC"])
+        check(countdownMode(next, me: "a", device: "macA", autoJoin: false, idleSeconds: 999) == .autoJoin, "next round: no Cancel")
+        check(countdownMode(next, me: "b", device: "macC", autoJoin: false, idleSeconds: 999) == .autoJoin, "next round: in via break")
+        check(countdownMode(next, me: "b", device: "macD", autoJoin: true, idleSeconds: 0) == nil, "my other Mac joined")
+        check(otherMacHasIt(next, me: "b", device: "macD") && !otherMacHasIt(next, me: "b", device: "macC")
+              && !otherMacHasIt(cd(), me: "b", device: "macC"), "otherMacHasIt")
 
         // withTimeout gives up on work that ignores cancellation (Firestore while offline)
         let began = Date()

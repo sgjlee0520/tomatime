@@ -2,6 +2,7 @@
 // Usage: node tools/fake-member.mjs <join|status|start|leave> <code> [args]
 //   join <code> <name>                      status <code> <name> <focus|break|idle> <tier> <minutes>
 //   start <code> <name> <tier> <minutes>    leave <code> <name>
+//   next <code>   (skip the 10-minute group break: the next round starts in 12 s, for those who picked it)
 import { initializeApp } from 'firebase/app';
 import { getAuth, connectAuthEmulator, signInWithEmailAndPassword, createUserWithEmailAndPassword } from 'firebase/auth';
 import { getFirestore, connectFirestoreEmulator, doc, getDoc, writeBatch, updateDoc, setDoc,
@@ -39,7 +40,12 @@ if (cmd === 'join') {
   const [tierName = 'Red', minutes = '25'] = rest;
   await setDoc(doc(db, 'groups', gid, 'sessions', 'current'), {
     id: crypto.randomUUID(), round: 1, startedBy: uid, starterName: name, tierName, minutes: Number(minutes),
-    createdAt: serverTimestamp(), cancelled: false, joined: [uid], nextJoined: [] });
+    createdAt: serverTimestamp(), cancelled: false, joined: [uid], nextJoined: [], devices: { [uid]: 'fake' } });
+} else if (cmd === 'next') {
+  const ref = doc(db, 'groups', gid, 'sessions', 'current');
+  const s = (await getDoc(ref)).data();
+  await updateDoc(ref, { round: s.round + 1, startAt: new Date(Date.now() + 12000), joined: s.nextJoined ?? [],
+                         nextJoined: [], id: crypto.randomUUID() });
 } else if (cmd === 'leave') {
   const b = writeBatch(db);
   b.update(doc(db, 'groups', gid), { memberUIDs: arrayRemove(uid) });

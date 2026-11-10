@@ -14,14 +14,14 @@ let tiers = [
 let maxFocusMinutes = 60.0
 let unit: Double = CommandLine.arguments.contains("--fast") ? 1 : 60  // seconds per "minute"
 
-// Tomato minutes: focus seconds per local day, e.g. ["2026-11-8": 4500]. --fast keeps a separate tally.
-let statsKey = unit == 60 ? "focusSeconds" : "focusSecondsFast"
+// Tomato minutes: focus seconds per local day, e.g. ["2026-11-8": 4500]. --fast and --emulator keep a separate tally.
+let statsKey = unit == 60 && !useEmulator ? "focusSeconds" : "focusSecondsFast"
 
 
 // iCloud sync (real minutes only): each Mac publishes its own tally under its own key and totals add
 // them up, so two Macs never overwrite each other. Needs an Apple-signed build; elsewhere it does nothing.
 let cloud = NSUbiquitousKeyValueStore.default
-let syncs = unit == 60
+let syncs = unit == 60 && !useEmulator
 let deviceKey: String = {
     let id = UserDefaults.standard.string(forKey: "deviceID") ?? UUID().uuidString
     UserDefaults.standard.set(id, forKey: "deviceID")
@@ -155,7 +155,7 @@ final class OverlayWindow: NSPanel {
     override var canBecomeKey: Bool { true }  // borderless windows refuse key by default
 }
 
-final class App: NSObject, NSApplicationDelegate, NSMenuDelegate {
+@MainActor final class App: NSObject, NSApplicationDelegate, NSMenuDelegate {
     let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
     let toggleItem = NSMenuItem(title: "Start", action: #selector(toggle), keyEquivalent: "")
     let loginItem = NSMenuItem(title: "Open at Login", action: #selector(toggleLogin), keyEquivalent: "")
@@ -167,7 +167,7 @@ final class App: NSObject, NSApplicationDelegate, NSMenuDelegate {
     let customItem = NSMenuItem(title: "Custom tomato…", action: #selector(customTomato), keyEquivalent: "")
     var tierIndex = min(UserDefaults.standard.object(forKey: "tier") as? Int ?? 1, tiers.count - 1)
     var custom: Tier?  // typed-in length; picking a tier clears it
-    var tier: Tier { custom ?? tiers[tierIndex] }
+    var tier: Tier { group.tier ?? custom ?? tiers[tierIndex] }
     var onBreak = false
     var autoNext = false  // start the next focus session when this break ends
     var focused = 0.0   // minutes in this focus session, "1 more minute"s included
@@ -177,6 +177,7 @@ final class App: NSObject, NSApplicationDelegate, NSMenuDelegate {
     var overlays: [NSWindow] = []
     var groupsOn = false  // Firebase configured (plist bundled, or --emulator)
     var countdown: Countdown?
+    var group = GroupPlay()  // Groups/GroupsUI.swift
 
     func applicationDidFinishLaunching(_: Notification) {
         groupsOn = configureFirebase()
@@ -205,7 +206,7 @@ final class App: NSObject, NSApplicationDelegate, NSMenuDelegate {
         menu.addItem(NSMenuItem(title: "Tomato Calendar…", action: #selector(showCalendar), keyEquivalent: ""))
         menu.addItem(.separator())
         menu.addItem(toggleItem)
-        menu.addItem(NSMenuItem(title: "Reset", action: #selector(reset), keyEquivalent: ""))
+        menu.addItem(NSMenuItem(title: "Reset", action: #selector(resetTapped), keyEquivalent: ""))
         menu.addItem(.separator())
         for (i, t) in tiers.enumerated() {
             let mi = NSMenuItem(title: "\(t.name) tomato · \(Int(t.minutes)) min", action: #selector(pickTier), keyEquivalent: "")
@@ -226,6 +227,7 @@ final class App: NSObject, NSApplicationDelegate, NSMenuDelegate {
                                                name: NSUbiquitousKeyValueStore.didChangeExternallyNotification, object: cloud)
         cloud.synchronize()
         pushToCloud()
+        if groupsOn { startGroups() }
     }
 
     // Another Mac's minutes arrived (may be posted off the main thread).
@@ -241,6 +243,7 @@ final class App: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     func menuWillOpen(_: NSMenu) {
         loginItem.state = SMAppService.mainApp.status == .enabled ? .on : .off
+        rebuildGroupMenu()  // fresh "min left"
     }
 
     @objc func showCalendar() {
@@ -297,6 +300,7 @@ final class App: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
 
     @objc func toggle() {
+        leaveGroupTomato()  // Pause takes only you out of a group tomato
         guard let end else { return run(left) }
         countFocus()
         left = max(0, end.timeIntervalSinceNow)
@@ -327,12 +331,14 @@ final class App: NSObject, NSApplicationDelegate, NSMenuDelegate {
         closeOverlay()
         onBreak = false
         autoNext = false
+        group.tier = nil
         focused = tier.minutes
         left = tier.minutes * unit
         render()
     }
 
     @objc func pickTier(_ sender: NSMenuItem) {
+        leaveGroupTomato()
         tierIndex = sender.tag
         UserDefaults.standard.set(tierIndex, forKey: "tier")
         custom = nil
@@ -358,6 +364,7 @@ final class App: NSObject, NSApplicationDelegate, NSMenuDelegate {
                 alert.informativeText = "Type a whole number from 1 to \(limit)."
                 continue
             }
+            leaveGroupTomato()
             // the tomato's color is the biggest tier it reaches: 30 min = red, 50 = golden
             custom = Tier(name: "\(m)-min", minutes: Double(m),
                           color: tiers.last { $0.minutes <= Double(m) }?.color ?? tiers[0].color)
@@ -373,6 +380,7 @@ final class App: NSObject, NSApplicationDelegate, NSMenuDelegate {
     @objc func break10() { startBreak(10) }
 
     func startBreak(_ minutes: Double, thenNext: Bool = false) {
+        leaveGroupTomato()  // the solo buttons on the red screen
         closeOverlay()
         onBreak = true
         autoNext = thenNext
@@ -380,6 +388,7 @@ final class App: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
 
     @objc func oneMore() {
+        leaveGroupTomato()
         closeOverlay()
         focused += 1
         run(unit)
@@ -390,7 +399,7 @@ final class App: NSObject, NSApplicationDelegate, NSMenuDelegate {
         item.button?.image = onBreak
             ? NSImage(systemSymbolName: "cup.and.saucer.fill", accessibilityDescription: "Break")
             : tomato(tier.color, size: 16)
-        item.button?.title = String(format: " %d:%02d", secs / 60, secs % 60)
+        statusTitle(String(format: " %d:%02d", secs / 60, secs % 60))
         toggleItem.title = end == nil ? "Start" : "Pause"
         todayItem.title = todayText()
         if calendarWindow?.isVisible == true { calendarView.needsDisplay = true }  // keep today's square live
@@ -398,6 +407,7 @@ final class App: NSObject, NSApplicationDelegate, NSMenuDelegate {
         customItem.state = custom == nil ? .off : .on
         customItem.title = custom.map { "Custom tomato · \(Int($0.minutes)) min…" } ?? "Custom tomato…"
         customItem.image = tomato(custom?.color ?? .systemGray, size: 16)
+        publishStatus()
     }
 
     // Pulsing red layer over every screen (above full-screen apps and the menu bar) until a button is picked.
@@ -438,14 +448,23 @@ final class App: NSObject, NSApplicationDelegate, NSMenuDelegate {
             let sub = NSTextField(labelWithString: "You focused \(Int(focused)) min · \(todayText())")
             sub.font = .systemFont(ofSize: 20)
             sub.textColor = .white
-            let next = button("5 min break, then next session", #selector(break5ThenNext), color: .controlAccentColor)
-            next.keyEquivalent = "\r"  // default button; Return picks it
+            // default button (Return): the group break after a group tomato, else 5 min break then next
+            let inGroup = group.gid != nil
+            let next = button("5 min break, then next session", #selector(break5ThenNext),
+                              color: inGroup ? NSColor(white: 1, alpha: 0.2) : .controlAccentColor)
+            if !inGroup { next.keyEquivalent = "\r" }
             var others = [button("5 min break", #selector(break5)), button("10 min break", #selector(break10))]
             if canExtend { others.append(button("1 more minute", #selector(oneMore))) }
             let row1 = NSStackView(views: [next, button("10 min break, then next session", #selector(break10ThenNext))])
             let row2 = NSStackView(views: others)
             [row1, row2].forEach { $0.spacing = 16 }
-            let row = NSStackView(views: [row1, row2])
+            var rows = [row1, row2]
+            if inGroup {
+                let together = button("10 min break, then next group tomato", #selector(groupBreak), color: .controlAccentColor)
+                together.keyEquivalent = "\r"
+                rows.insert(NSStackView(views: [together]), at: 0)
+            }
+            let row = NSStackView(views: rows)
             row.orientation = .vertical
             row.spacing = 12
 
@@ -498,8 +517,10 @@ func pillButton(_ title: String, target: AnyObject, action: Selector, color: NSC
     return b
 }
 
-let app = NSApplication.shared
-let delegate = App()
-app.delegate = delegate
-app.setActivationPolicy(.accessory)  // menu bar only, no Dock icon
-app.run()
+MainActor.assumeIsolated {  // top-level code runs on the main thread
+    let app = NSApplication.shared
+    let delegate = App()
+    app.delegate = delegate
+    app.setActivationPolicy(.accessory)  // menu bar only, no Dock icon
+    app.run()
+}

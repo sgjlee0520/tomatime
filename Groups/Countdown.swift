@@ -3,8 +3,6 @@
 // Purely visual: the caller starts the tomato at `startAt`.
 import AppKit
 
-enum CountdownMode { case invite, autoJoin, starter }
-
 final class Countdown: NSObject {
     private let startAt: Date
     private let onJoin: () -> Void, onSkip: () -> Void, onCancel: () -> Void
@@ -16,7 +14,8 @@ final class Countdown: NSObject {
     private var timer: Timer?
     private var shown = ""
 
-    init(title: String, mode: CountdownMode, startAt: Date, onJoin: @escaping () -> Void,
+    // `note`: why an auto-join countdown asks nothing.
+    init(title: String, mode: CountdownMode, startAt: Date, note: String = "Auto-join is on", onJoin: @escaping () -> Void,
          onSkip: @escaping () -> Void, onCancel: @escaping () -> Void) {
         self.startAt = startAt
         self.onJoin = onJoin
@@ -24,7 +23,7 @@ final class Countdown: NSObject {
         self.onCancel = onCancel
         joined = mode != .invite
         super.init()
-        windows = NSScreen.screens.map { window(on: $0, title: title, mode: mode) }
+        windows = NSScreen.screens.map { window(on: $0, title: title, mode: mode, note: note) }
         windows.forEach { $0.orderFrontRegardless() }
         windows.first?.makeKey()  // first screen has the menu bar; Return / Esc go here
         timer = Timer(timeInterval: 0.05, repeats: true) { [weak self] _ in self?.tick() }
@@ -85,7 +84,7 @@ final class Countdown: NSObject {
         layer.add(group, forKey: "pulse")
     }
 
-    private func window(on screen: NSScreen, title: String, mode: CountdownMode) -> NSWindow {
+    private func window(on screen: NSScreen, title: String, mode: CountdownMode, note: String) -> NSWindow {
         let w = OverlayWindow(contentRect: screen.frame, styleMask: [.borderless, .nonactivatingPanel],
                               backing: .buffered, defer: false)
         w.hidesOnDeactivate = false
@@ -128,7 +127,7 @@ final class Countdown: NSObject {
         case .autoJoin:
             let skip = pillButton("Skip this one  esc", target: self, action: #selector(skip))
             skip.keyEquivalent = "\u{1b}"
-            views += [skip, label("Auto-join is on", 14, .regular, alpha: 0.7)]
+            views += [skip, label(note, 14, .regular, alpha: 0.7)]
         case .starter:
             let cancel = pillButton("Cancel", target: self, action: #selector(cancel))
             cancel.keyEquivalent = "\u{1b}"

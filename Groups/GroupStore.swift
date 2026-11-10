@@ -117,7 +117,7 @@ private func isDenied(_ e: Error) -> Bool { (e as NSError).code == FirestoreErro
                 Task { @MainActor in self?.members[gid] = list; self?.rebuild() }
             },
             g.collection("sessions").document("current").addSnapshotListener { [weak self] snap, _ in
-                let s = snap.flatMap { d in d.data(with: .estimate).flatMap { session(id: d.documentID, data: plain($0) as! [String: Any]) } }
+                let s = snap?.data(with: .estimate).flatMap { session(data: plain($0) as! [String: Any]) }
                 Task { @MainActor in self?.sessions[gid] = s; self?.rebuild() }
             },
         ]
@@ -164,6 +164,15 @@ private func isDenied(_ e: Error) -> Bool { (e as NSError).code == FirestoreErro
     private var anchorWindow: NSWindow?
 
     // MARK: Groups
+
+    // The display name saved on any of my Macs (nil: never set, or offline).
+    func loadName() async -> String? {
+        if myName == nil, let uid {
+            let snap = try? await withTimeout { try await self.db.document("users/\(uid)").getDocument() }
+            myName = snap?.data()?["name"] as? String
+        }
+        return myName
+    }
 
     func setName(_ name: String) async throws {
         guard let uid else { throw GroupError.notSignedIn }
@@ -280,18 +289,19 @@ private func isDenied(_ e: Error) -> Bool { (e as NSError).code == FirestoreErro
             try await self.sessionDoc(gid).setData([
                 "id": UUID().uuidString, "round": 1, "startedBy": uid, "starterName": self.myName ?? "",
                 "tierName": tierName, "minutes": minutes, "createdAt": FieldValue.serverTimestamp(),
-                "cancelled": false, "joined": [uid], "nextJoined": []])
+                "cancelled": false, "joined": [uid], "nextJoined": [], "devices": [uid: deviceKey]])
         }
     }
 
-    func setJoined(_ gid: String, joined: Bool) {
-        guard let uid else { return }
-        sessionDoc(gid).updateData(["joined": joined ? FieldValue.arrayUnion([uid]) : FieldValue.arrayRemove([uid])])
-    }
+    // Joining also claims the tomato for this Mac: my other Macs see `devices` and stand down.
+    func setJoined(_ gid: String, joined: Bool) { optIn(gid, "joined", joined) }
+    func setNextJoined(_ gid: String, joined: Bool) { optIn(gid, "nextJoined", joined) }
 
-    func setNextJoined(_ gid: String) {
+    private func optIn(_ gid: String, _ list: String, _ on: Bool) {
         guard let uid else { return }
-        sessionDoc(gid).updateData(["nextJoined": FieldValue.arrayUnion([uid])])
+        var d: [AnyHashable: Any] = [list: on ? FieldValue.arrayUnion([uid]) : FieldValue.arrayRemove([uid])]
+        if on { d[FieldPath(["devices", uid])] = deviceKey }
+        sessionDoc(gid).updateData(d)
     }
 
     // Everyone opted in computes the same next start, so racing callers write the same thing; only the first counts.

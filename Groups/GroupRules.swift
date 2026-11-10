@@ -49,9 +49,11 @@ struct GroupSession {
     var cancelled: Bool
     var joined: [String]
     var nextJoined: [String]
+    var devices: [String: String]  // member → the one Mac of theirs that runs this tomato (last to opt in)
 }
 
 enum JoinVerdict: Equatable { case ok, alreadyMember, full, needsPass }
+enum CountdownMode { case invite, autoJoin, starter }
 enum SessionPhase: Equatable { case countdown(Int), running(Double), over }  // seconds to start / seconds left
 
 func joinVerdict(_ g: TomatoGroup, uid: String, hasPass: Bool) -> JoinVerdict {
@@ -108,6 +110,19 @@ func nextRoundStart(after end: Date) -> Date { end + groupBreakMinutes * 60 }
 
 func shouldAutoJoin(idleSeconds: Double) -> Bool { idleSeconds < activeMacSeconds }
 
+// I'm in this group tomato, but on another of my Macs: this one shows nothing (or closes its countdown).
+func otherMacHasIt(_ s: GroupSession, me: String, device: String) -> Bool {
+    s.joined.contains(me) && s.devices[me] != device
+}
+
+// What this Mac shows when a group tomato's countdown begins; nil = nothing.
+// Already in (I started it here, or picked the group break here) → no question asked.
+func countdownMode(_ s: GroupSession, me: String, device: String, autoJoin: Bool, idleSeconds: Double) -> CountdownMode? {
+    if otherMacHasIt(s, me: me, device: device) { return nil }
+    if s.joined.contains(me) { return s.startedBy == me && s.round == 1 ? .starter : .autoJoin }
+    return autoJoin && shouldAutoJoin(idleSeconds: idleSeconds) ? .autoJoin : .invite
+}
+
 private let codeAlphabet = Array("23456789ABCDEFGHJKLMNPQRSTUVWXYZ")  // no 0/O, 1/I: easy to type
 
 func makeInviteCode<R: RandomNumberGenerator>(using rng: inout R) -> String {
@@ -144,15 +159,17 @@ func member(uid: String, data: [String: Any]) -> Member? {
 }
 
 // Round 1 stores only the server's createdAt (start = 10 s later); later rounds store startAt.
-func session(id: String, data: [String: Any]) -> GroupSession? {
-    guard let startedBy = data["startedBy"] as? String,
+// `id` changes every round; the document itself is always groups/{gid}/sessions/current.
+func session(data: [String: Any]) -> GroupSession? {
+    guard let id = data["id"] as? String, let startedBy = data["startedBy"] as? String,
           let startAt = data["startAt"] as? Date ?? (data["createdAt"] as? Date).map({ $0 + Double(countdownSeconds) })
     else { return nil }
     return GroupSession(id: id, round: (data["round"] as? NSNumber)?.intValue ?? 1, startedBy: startedBy,
                         starterName: data["starterName"] as? String ?? "", tierName: data["tierName"] as? String ?? "",
                         minutes: (data["minutes"] as? NSNumber)?.doubleValue ?? 0, startAt: startAt,
                         cancelled: data["cancelled"] as? Bool ?? false, joined: data["joined"] as? [String] ?? [],
-                        nextJoined: data["nextJoined"] as? [String] ?? [])
+                        nextJoined: data["nextJoined"] as? [String] ?? [],
+                        devices: data["devices"] as? [String: String] ?? [:])
 }
 
 enum GroupError: LocalizedError {
