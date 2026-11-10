@@ -10,7 +10,7 @@
 	<key>installerSigningCertificate</key><string>3rd Party Mac Developer Installer</string>
 	<key>provisioningProfiles</key>
 	<dict>
-		<key>com.sgjlee.tomatime</key><string>Tomatime Store 20261108</string>
+		<key>com.sgjlee.tomatime</key><string>Tomatime Store 20261109</string>
 	</dict>
 </dict>
 </plist>

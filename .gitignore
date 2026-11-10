@@ -3,3 +3,4 @@ build/
 Info.plist
 Tomatime.entitlements
 .DS_Store
+.superpowers/

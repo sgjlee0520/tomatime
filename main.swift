@@ -22,13 +22,34 @@ func dayKey(_ date: Date = Date()) -> String {
     return "\(d.year!)-\(d.month!)-\(d.day!)"
 }
 
-func dayMinutes(_ date: Date) -> Int {
-    let secs = UserDefaults.standard.dictionary(forKey: statsKey)?[dayKey(date)] as? Double ?? 0
-    return Int((secs + 0.5) / 60)
+// iCloud sync (real minutes only): each Mac publishes its own tally under its own key and totals add
+// them up, so two Macs never overwrite each other. Needs an Apple-signed build; elsewhere it does nothing.
+let cloud = NSUbiquitousKeyValueStore.default
+let syncs = unit == 60
+let deviceKey: String = {
+    let id = UserDefaults.standard.string(forKey: "deviceID") ?? UUID().uuidString
+    UserDefaults.standard.set(id, forKey: "deviceID")
+    return "focus-" + id
+}()
+
+func localTally() -> [String: Double] { UserDefaults.standard.dictionary(forKey: statsKey) as? [String: Double] ?? [:] }
+
+// This Mac's seconds per day plus every other Mac's from iCloud.
+func tally() -> [String: Double] {
+    var all = localTally()
+    guard syncs else { return all }
+    for (key, value) in cloud.dictionaryRepresentation where key.hasPrefix("focus-") && key != deviceKey {
+        for (day, secs) in value as? [String: Double] ?? [:] { all[day, default: 0] += secs }
+    }
+    return all
 }
 
+func pushToCloud() { if syncs { cloud.set(localTally(), forKey: deviceKey) } }
+
+func mins(_ secs: Double?) -> Int { Int(((secs ?? 0) + 0.5) / 60) }
+
 func todayText() -> String {
-    let m = dayMinutes(Date())
+    let m = mins(tally()[dayKey()])
     return "\(m) tomato minute\(m == 1 ? "" : "s") today"
 }
 
@@ -72,7 +93,8 @@ final class CalendarView: NSView {
     override func draw(_: NSRect) {
         let first = cal.dateInterval(of: .month, for: month)!.start
         let days = cal.range(of: .day, in: .month, for: first)!.map { cal.date(byAdding: .day, value: $0 - 1, to: first)! }
-        let minutes = days.map(dayMinutes)
+        let all = tally()
+        let minutes = days.map { mins(all[dayKey($0)]) }
         let f = DateFormatter()
         f.setLocalizedDateFormatFromTemplate("MMMM yyyy")
         let title = f.string(from: first), total = "\(hm(minutes.reduce(0, +))) of tomatoes this month"
@@ -146,8 +168,10 @@ final class App: NSObject, NSApplicationDelegate, NSMenuDelegate {
     let calendarView = CalendarView()
     var calendarWindow: NSWindow?
     var tierItems: [NSMenuItem] = []
+    let customItem = NSMenuItem(title: "Custom tomato…", action: #selector(customTomato), keyEquivalent: "")
     var tierIndex = min(UserDefaults.standard.object(forKey: "tier") as? Int ?? 1, tiers.count - 1)
-    var tier: Tier { tiers[tierIndex] }
+    var custom: Tier?  // typed-in length; picking a tier clears it
+    var tier: Tier { custom ?? tiers[tierIndex] }
     var onBreak = false
     var autoNext = false  // start the next focus session when this break ends
     var focused = 0.0   // minutes in this focus session, "1 more minute"s included
@@ -174,6 +198,7 @@ final class App: NSObject, NSApplicationDelegate, NSMenuDelegate {
             tierItems.append(mi)
             menu.addItem(mi)
         }
+        menu.addItem(customItem)
         menu.addItem(.separator())
         menu.addItem(loginItem)
         menu.items.forEach { $0.target = self }
@@ -181,6 +206,21 @@ final class App: NSObject, NSApplicationDelegate, NSMenuDelegate {
         menu.delegate = self
         item.menu = menu
         reset()
+        NotificationCenter.default.addObserver(self, selector: #selector(cloudChanged),
+                                               name: NSUbiquitousKeyValueStore.didChangeExternallyNotification, object: cloud)
+        cloud.synchronize()
+        pushToCloud()
+    }
+
+    // Another Mac's minutes arrived (may be posted off the main thread).
+    @objc func cloudChanged() {
+        DispatchQueue.main.async { self.render() }
+    }
+
+    func applicationWillTerminate(_: Notification) {
+        countFocus()
+        pushToCloud()
+        cloud.synchronize()
     }
 
     func menuWillOpen(_: NSMenu) {
@@ -219,7 +259,7 @@ final class App: NSObject, NSApplicationDelegate, NSMenuDelegate {
         let gap = min(Date(), end).timeIntervalSince(lastCount)
         lastCount = Date()
         guard gap > 0, gap < 5 else { return }
-        var days = UserDefaults.standard.dictionary(forKey: statsKey) as? [String: Double] ?? [:]
+        var days = localTally()
         days[dayKey(), default: 0] += gap * 60 / unit
         UserDefaults.standard.set(days, forKey: statsKey)
     }
@@ -237,6 +277,7 @@ final class App: NSObject, NSApplicationDelegate, NSMenuDelegate {
     func stop() {
         timer?.invalidate()
         end = nil
+        pushToCloud()  // on pause, finish and reset; not every second
     }
 
     @objc func toggle() {
@@ -278,10 +319,40 @@ final class App: NSObject, NSApplicationDelegate, NSMenuDelegate {
     @objc func pickTier(_ sender: NSMenuItem) {
         tierIndex = sender.tag
         UserDefaults.standard.set(tierIndex, forKey: "tier")
+        custom = nil
         reset()
     }
 
+    // Asks for 1–60 whole minutes, then starts right away. The length repeats after "break, then next session".
+    @objc func customTomato() {
+        let limit = Int(maxFocusMinutes)
+        let field = NSTextField(frame: NSRect(x: 0, y: 0, width: 220, height: 24))
+        field.placeholderString = "Minutes, 1 to \(limit)"
+        if let custom { field.stringValue = "\(Int(custom.minutes))" }
+        let alert = NSAlert()
+        alert.messageText = "Custom tomato"
+        alert.informativeText = "How many minutes?"
+        alert.accessoryView = field
+        alert.addButton(withTitle: "Start")
+        alert.addButton(withTitle: "Cancel")
+        alert.window.initialFirstResponder = field
+        NSApp.activate()
+        while alert.runModal() == .alertFirstButtonReturn {
+            guard let m = Int(field.stringValue.trimmingCharacters(in: .whitespaces)), (1...limit).contains(m) else {
+                alert.informativeText = "Type a whole number from 1 to \(limit)."
+                continue
+            }
+            // the tomato's color is the biggest tier it reaches: 30 min = red, 50 = golden
+            custom = Tier(name: "\(m)-min", minutes: Double(m),
+                          color: tiers.last { $0.minutes <= Double(m) }?.color ?? tiers[0].color)
+            reset()
+            run(left)
+            return
+        }
+    }
+
     @objc func break5ThenNext() { startBreak(5, thenNext: true) }
+    @objc func break10ThenNext() { startBreak(10, thenNext: true) }
     @objc func break5() { startBreak(5) }
     @objc func break10() { startBreak(10) }
 
@@ -307,7 +378,10 @@ final class App: NSObject, NSApplicationDelegate, NSMenuDelegate {
         toggleItem.title = end == nil ? "Start" : "Pause"
         todayItem.title = todayText()
         if calendarWindow?.isVisible == true { calendarView.needsDisplay = true }  // keep today's square live
-        tierItems.forEach { $0.state = $0.tag == tierIndex ? .on : .off }
+        tierItems.forEach { $0.state = custom == nil && $0.tag == tierIndex ? .on : .off }
+        customItem.state = custom == nil ? .off : .on
+        customItem.title = custom.map { "Custom tomato · \(Int($0.minutes)) min…" } ?? "Custom tomato…"
+        customItem.image = tomato(custom?.color ?? .systemGray, size: 16)
     }
 
     // Pulsing red layer over every screen (above full-screen apps and the menu bar) until a button is picked.
@@ -350,10 +424,14 @@ final class App: NSObject, NSApplicationDelegate, NSMenuDelegate {
             sub.textColor = .white
             let next = button("5 min break, then next session", #selector(break5ThenNext), color: .controlAccentColor)
             next.keyEquivalent = "\r"  // default button; Return picks it
-            var buttons = [next, button("5 min break", #selector(break5)), button("10 min break", #selector(break10))]
-            if canExtend { buttons.append(button("1 more minute", #selector(oneMore))) }
-            let row = NSStackView(views: buttons)
-            row.spacing = 16
+            var others = [button("5 min break", #selector(break5)), button("10 min break", #selector(break10))]
+            if canExtend { others.append(button("1 more minute", #selector(oneMore))) }
+            let row1 = NSStackView(views: [next, button("10 min break, then next session", #selector(break10ThenNext))])
+            let row2 = NSStackView(views: others)
+            [row1, row2].forEach { $0.spacing = 16 }
+            let row = NSStackView(views: [row1, row2])
+            row.orientation = .vertical
+            row.spacing = 12
 
             let card = NSStackView(views: [NSImageView(image: tomato(tier.color, size: 110)), title, sub, row])
             card.orientation = .vertical
