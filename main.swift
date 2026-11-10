@@ -52,12 +52,21 @@ func todayText() -> String {
 func hm(_ m: Int) -> String { m < 60 ? "\(m)m" : m % 60 == 0 ? "\(m / 60)h" : "\(m / 60)h \(m % 60)m" }
 
 // "Tomato intensity": one month, each day shaded by its tomato minutes (one hue: faint = little, deep = a lot).
+// With groups, a tab per group shows everyone's minutes added up, and this week's ranking below.
 final class CalendarView: NSView {
     static let steps: [(from: Int, label: String)] = [(0, "0"), (1, "1m"), (25, "25m"), (60, "1h"), (120, "2h"), (240, "4h+")]
     static let alphas: [CGFloat] = [0, 0.2, 0.4, 0.6, 0.8, 1]
     let cal = Calendar.current
     let cell = NSSize(width: 60, height: 50), gap: CGFloat = 4, pad: CGFloat = 20
     var month = Date()  // any day in the month shown
+    // ponytail: one segment per group; very many groups or long names overflow the 484-pt window
+    let tabs = NSSegmentedControl(labels: ["Me"], trackingMode: .selectOne, target: nil, action: nil)
+    var arrows: [NSButton] = []
+    var groups: [TomatoGroup] = []
+    var me: String?
+    var groupID: String?  // nil = Me
+    var group: TomatoGroup? { groups.first { $0.id == groupID } }
+    var y0: CGFloat { tabs.isHidden ? pad : pad + 36 }  // where the month title starts
     override var isFlipped: Bool { true }
 
     init() {
@@ -67,8 +76,13 @@ final class CalendarView: NSView {
             b.tag = step
             b.frame = NSRect(x: step < 0 ? pad : bounds.width - pad - 40, y: pad, width: 40, height: 28)
             b.setAccessibilityLabel(step < 0 ? "Previous month" : "Next month")
+            arrows.append(b)
             addSubview(b)
         }
+        tabs.target = self
+        tabs.action = #selector(pickTab)
+        tabs.isHidden = true
+        addSubview(tabs)
         setAccessibilityElement(true)
         setAccessibilityRole(.staticText)
     }
@@ -79,25 +93,67 @@ final class CalendarView: NSView {
         needsDisplay = true
     }
 
+    // Tabs: Me + each group (none without groups). A tab whose group is gone falls back to Me.
+    func setGroups(_ groups: [TomatoGroup], me: String?) {
+        self.groups = groups
+        self.me = me
+        if group == nil { groupID = nil }
+        let labels = ["Me"] + groups.map(\.name)
+        tabs.segmentCount = labels.count
+        for (i, label) in labels.enumerated() { tabs.setLabel(label, forSegment: i); tabs.setWidth(0, forSegment: i) }
+        tabs.selectedSegment = groups.firstIndex { $0.id == groupID }.map { $0 + 1 } ?? 0
+        tabs.isHidden = groups.isEmpty
+        tabs.sizeToFit()
+        tabs.frame.origin = NSPoint(x: (bounds.width - tabs.frame.width) / 2, y: pad)
+        arrows.forEach { $0.frame.origin.y = y0 }
+        fit()
+        needsDisplay = true
+    }
+
+    @objc func pickTab() {
+        groupID = tabs.selectedSegment == 0 ? nil : groups[tabs.selectedSegment - 1].id
+        fit()
+        needsDisplay = true
+    }
+
+    // The month, plus the ranking rows on a group tab. The window keeps its top edge.
+    func fit() {
+        let h = y0 + 500 + (group.map { 40 + CGFloat($0.members.count) * 22 } ?? 0)
+        guard h != frame.height else { return }
+        setFrameSize(NSSize(width: frame.width, height: h))
+        guard let w = window else { return }
+        var f = w.frameRect(forContentRect: NSRect(origin: .zero, size: frame.size))
+        f.origin = NSPoint(x: w.frame.minX, y: w.frame.maxY - f.height)
+        w.setFrame(f, display: true)
+    }
+
     func text(_ s: String, _ p: NSPoint, _ size: CGFloat, _ color: NSColor = .labelColor,
-              weight: NSFont.Weight = .regular, centered: Bool = true) {
+              weight: NSFont.Weight = .regular, centered: Bool = true, right: Bool = false) {
         let a: [NSAttributedString.Key: Any] = [.font: NSFont.systemFont(ofSize: size, weight: weight), .foregroundColor: color]
-        let dx = centered ? (s as NSString).size(withAttributes: a).width / 2 : 0
+        let w = (s as NSString).size(withAttributes: a).width
+        let dx = right ? w : centered ? w / 2 : 0
         (s as NSString).draw(at: NSPoint(x: p.x - dx, y: p.y), withAttributes: a)
     }
 
     override func draw(_: NSRect) {
         let first = cal.dateInterval(of: .month, for: month)!.start
         let days = cal.range(of: .day, in: .month, for: first)!.map { cal.date(byAdding: .day, value: $0 - 1, to: first)! }
-        let all = tally()
-        let minutes = days.map { mins(all[dayKey($0)]) }
+        let g = group
+        let minutes: [Int]
+        if let g {
+            minutes = groupDayMinutes(g, days: days)
+        } else {
+            let all = tally()
+            minutes = days.map { mins(all[dayKey($0)]) }
+        }
         let f = DateFormatter()
         f.setLocalizedDateFormatFromTemplate("MMMM yyyy")
-        let title = f.string(from: first), total = "\(hm(minutes.reduce(0, +))) of tomatoes this month"
-        text(title, NSPoint(x: bounds.midX, y: pad), 18, weight: .semibold)
-        text(total, NSPoint(x: bounds.midX, y: pad + 26), 12, .secondaryLabelColor)
+        let sum = hm(minutes.reduce(0, +))
+        let title = f.string(from: first), total = g == nil ? "\(sum) of tomatoes this month" : "group total \(sum) this month"
+        text(title, NSPoint(x: bounds.midX, y: y0), 18, weight: .semibold)
+        text(total, NSPoint(x: bounds.midX, y: y0 + 26), 12, .secondaryLabelColor)
 
-        let top = pad + 64, stride = cell.width + gap
+        let top = y0 + 64, stride = cell.width + gap
         for col in 0..<7 {
             let symbol = cal.shortWeekdaySymbols[(col + cal.firstWeekday - 1) % 7]
             text(symbol, NSPoint(x: pad + CGFloat(col) * stride + cell.width / 2, y: top), 11, .secondaryLabelColor)
@@ -132,8 +188,25 @@ final class CalendarView: NSView {
             text(step.label, NSPoint(x: r.midX, y: r.maxY + 3), 10, .secondaryLabelColor)
         }
 
+        // Group tab: this week's ranking (week start per this Mac's settings), "You" for me.
+        var ranked: [String] = []
+        if var g {
+            g.members = g.members.map { var m = $0; if m.uid == me { m.name = "You" }; return m }
+            let ry = ly + 62
+            text("This week", NSPoint(x: bounds.midX, y: ry), 13, weight: .semibold)
+            for (i, row) in weeklyRanking(g, now: Date(), calendar: cal).enumerated() {
+                let y = ry + 24 + CGFloat(i) * 22
+                let place = i < 3 ? ["🥇", "🥈", "🥉"][i] : "\(i + 1)."
+                text("\(place)  \(row.name)", NSPoint(x: bounds.midX - 120, y: y), 13, centered: false)
+                text(hm(row.minutes), NSPoint(x: bounds.midX + 120, y: y), 13, weight: .semibold, right: true)
+                ranked.append("\(i + 1). \(row.name) \(hm(row.minutes))")
+            }
+        }
+
         let busy = zip(days, minutes).filter { $0.1 > 0 }.map { "\(cal.component(.day, from: $0.0)): \(hm($0.1))" }
-        setAccessibilityLabel("\(title), \(total). " + (busy.isEmpty ? "No tomato minutes yet." : busy.joined(separator: ", ")))
+        setAccessibilityLabel("\(g.map { "\($0.name), " } ?? "")\(title), \(total). "
+            + (busy.isEmpty ? "No tomato minutes yet." : busy.joined(separator: ", "))
+            + (ranked.isEmpty ? "" : ". This week: " + ranked.joined(separator: ", ")))
     }
 }
 
@@ -244,6 +317,7 @@ final class OverlayWindow: NSPanel {
     func applicationWillTerminate(_: Notification) {
         countFocus()
         pushToCloud()
+        publishMinutes()
         cloud.synchronize()
     }
 
@@ -262,6 +336,7 @@ final class OverlayWindow: NSPanel {
             w.center()
             calendarWindow = w
         }
+        if groupsOn { calendarView.setGroups(store.groups, me: store.uid) }
         calendarView.month = Date()
         calendarView.needsDisplay = true
         NSApp.activate()
@@ -303,6 +378,7 @@ final class OverlayWindow: NSPanel {
         timer?.invalidate()
         end = nil
         pushToCloud()  // on pause, finish and reset; not every second
+        publishMinutes()
     }
 
     @objc func toggle() {

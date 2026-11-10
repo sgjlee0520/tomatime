@@ -22,6 +22,7 @@ while (!code) {
 console.log('group code', code);
 fake('join', code, 'Mina'); fake('status', code, 'Mina', 'focus', 'Golden', '45');
 fake('join', code, 'Alex'); fake('status', code, 'Alex', 'break', '', '4');
+fake('minutes', code, 'Mina', '25'); fake('minutes', code, 'Alex', '25');  // for the group calendar
 setTimeout(() => fake('start', code, 'Mina', 'Red', '1'), 60_000);
 
 const app = initializeApp({ projectId: 'demo-tomatime', apiKey: 'fake-api-key' });

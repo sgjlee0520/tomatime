@@ -34,6 +34,7 @@ extension App {
     func groupsChanged() {
         render()
         rebuildGroupMenu()
+        if calendarWindow?.isVisible == true { calendarView.setGroups(store.groups, me: store.uid) }
         guard let me = store.uid else { return }
         for g in store.groups {
             guard let s = store.sessions[g.id] else { continue }
@@ -163,6 +164,11 @@ extension App {
     @objc func resetTapped() {
         leaveGroupTomato()
         reset()
+    }
+
+    // This Mac's own minutes, under its own device id (never tally(): that already holds my other Macs').
+    func publishMinutes() {
+        if groupsOn { store.publishSeconds(device: String(deviceKey.dropFirst("focus-".count)), local: localTally()) }
     }
 
     // Only on change, and only while signed in: writes stay at one per start, pause, break or stop.

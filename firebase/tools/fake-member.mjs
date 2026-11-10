@@ -2,6 +2,7 @@
 // Usage: node tools/fake-member.mjs <join|status|start|leave> <code> [args]
 //   join <code> <name>                      status <code> <name> <focus|break|idle> <tier> <minutes>
 //   start <code> <name> <tier> <minutes>    leave <code> <name>
+//   minutes <code> <name> <days>   (a history: joined <days> ago, minutes on most days, for the calendar)
 //   next <code>   (skip the 10-minute group break: the next round starts in 12 s, for those who picked it)
 import { initializeApp } from 'firebase/app';
 import { getAuth, connectAuthEmulator, signInWithEmailAndPassword, createUserWithEmailAndPassword } from 'firebase/auth';
@@ -41,6 +42,14 @@ if (cmd === 'join') {
   await setDoc(doc(db, 'groups', gid, 'sessions', 'current'), {
     id: crypto.randomUUID(), round: 1, startedBy: uid, starterName: name, tierName, minutes: Number(minutes),
     createdAt: serverTimestamp(), cancelled: false, joined: [uid], nextJoined: [], devices: { [uid]: 'fake' } });
+} else if (cmd === 'minutes') {
+  const days = Number(rest[0] ?? 20), secs = {};
+  for (let i = 0; i < days; i++) {
+    if ((i * 7 + name.length) % 5 === 0) continue;  // a day off now and then
+    const d = new Date(Date.now() - i * 86400000);
+    secs[`${d.getFullYear()}-${d.getMonth() + 1}-${d.getDate()}`] = 60 * (20 + ((i * 37 + name.length * 11) % 280));
+  }
+  await updateDoc(me, { joinedAt: new Date(Date.now() - days * 86400000), 'secondsByDevice.fake': secs });
 } else if (cmd === 'next') {
   const ref = doc(db, 'groups', gid, 'sessions', 'current');
   const s = (await getDoc(ref)).data();
