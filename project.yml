@@ -6,7 +6,7 @@ targets:
   Tomatime:
     type: application
     platform: macOS
-    sources: [main.swift, Assets.xcassets]
+    sources: [main.swift, Groups/GroupRules.swift, Assets.xcassets]
     info:
       path: Info.plist
       properties:

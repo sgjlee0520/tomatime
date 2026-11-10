@@ -17,10 +17,6 @@ let unit: Double = CommandLine.arguments.contains("--fast") ? 1 : 60  // seconds
 // Tomato minutes: focus seconds per local day, e.g. ["2026-11-8": 4500]. --fast keeps a separate tally.
 let statsKey = unit == 60 ? "focusSeconds" : "focusSecondsFast"
 
-func dayKey(_ date: Date = Date()) -> String {
-    let d = Calendar.current.dateComponents([.year, .month, .day], from: date)
-    return "\(d.year!)-\(d.month!)-\(d.day!)"
-}
 
 // iCloud sync (real minutes only): each Mac publishes its own tally under its own key and totals add
 // them up, so two Macs never overwrite each other. Needs an Apple-signed build; elsewhere it does nothing.
