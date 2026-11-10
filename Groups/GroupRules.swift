@@ -4,9 +4,16 @@ import Foundation
 let maxGroupSize = 6, countdownSeconds = 10, groupBreakMinutes = 10.0, activeMacSeconds = 120.0
 let groupsFree = true   // until the Paid Apps agreement is active; then passes (StoreKit) unlock groups
 
+// Day keys and group days are Gregorian on every Mac (Thai Macs default to the Buddhist calendar), in local time.
+let gregorian: Calendar = {
+    var c = Calendar(identifier: .gregorian)
+    c.timeZone = .autoupdatingCurrent
+    return c
+}()
+
 // Local calendar day, e.g. "2026-11-9". Used for the solo tally, iCloud sync and group minutes.
 func dayKey(_ date: Date = Date()) -> String {
-    let d = Calendar.current.dateComponents([.year, .month, .day], from: date)
+    let d = gregorian.dateComponents([.year, .month, .day], from: date)
     return "\(d.year!)-\(d.month!)-\(d.day!)"
 }
 
@@ -108,6 +115,44 @@ func sessionPhase(_ s: GroupSession, now: Date) -> SessionPhase {
 
 func nextRoundStart(after end: Date) -> Date { end + groupBreakMinutes * 60 }
 
+// A new group tomato never replaces one that's on, or a group break people picked (they'd lose their next round).
+func canStartSession(_ s: GroupSession?, now: Date) -> Bool {
+    guard let s, !s.cancelled else { return true }
+    if sessionPhase(s, now: now) != .over { return false }
+    return s.nextJoined.isEmpty || nextRoundStart(after: s.startAt + s.minutes * 60) <= now
+}
+
+// The group's session line in the menu; minutes are rounded up. `here`: this Mac is in this round.
+enum SessionMenu: Equatable { case start, starting, joinCountdown, inIt(Int), otherMac(Int), joinRunning(Int), onBreak(Int), joinBreak(Int) }
+
+func sessionMenu(_ s: GroupSession?, me: String, device: String, here: Bool, now: Date) -> SessionMenu {
+    guard let s else { return .start }
+    switch sessionPhase(s, now: now) {
+    case .countdown:
+        return here || otherMacHasIt(s, me: me, device: device) ? .starting : .joinCountdown
+    case .running(let left):
+        let m = Int((left / 60).rounded(.up))
+        return here ? .inIt(m) : otherMacHasIt(s, me: me, device: device) ? .otherMac(m) : .joinRunning(m)
+    case .over:
+        guard !s.cancelled, !s.nextJoined.isEmpty else { return .start }
+        let toNext = nextRoundStart(after: s.startAt + s.minutes * 60).timeIntervalSince(now)
+        if toNext <= 0 { return .start }
+        if toNext <= Double(countdownSeconds) { return .starting }
+        let m = Int((toNext / 60).rounded(.up))
+        return s.nextJoined.contains(me) ? .onBreak(m) : .joinBreak(m)
+    }
+}
+
+// This Mac's minutes that count in a group: only from the day you joined.
+func secondsSince(_ local: [String: Double], joined: Date) -> [String: Double] {
+    let first = Calendar.current.startOfDay(for: joined)
+    return local.filter { key, _ in
+        let p = key.split(separator: "-").compactMap { Int($0) }
+        guard p.count == 3, let day = gregorian.date(from: DateComponents(year: p[0], month: p[1], day: p[2])) else { return false }
+        return day >= first
+    }
+}
+
 func shouldAutoJoin(idleSeconds: Double) -> Bool { idleSeconds < activeMacSeconds }
 
 // I'm in this group tomato, but on another of my Macs: this one shows nothing (or closes its countdown).
@@ -129,9 +174,10 @@ func makeInviteCode<R: RandomNumberGenerator>(using rng: inout R) -> String {
     "TOMA-" + String((0..<6).map { _ in codeAlphabet.randomElement(using: &rng)! })
 }
 
+// Typed codes: any case, spaces, dashes of any kind, quotes or a period around it; "TOMA" optional.
 func normalizeCode(_ s: String) -> String? {
-    var c = s.uppercased().filter { !$0.isWhitespace }
-    if c.hasPrefix("TOMA-") { c.removeFirst(5) }
+    var c = String(s.uppercased().filter { $0.isASCII && ($0.isLetter || $0.isNumber) })
+    if c.count == 10, c.hasPrefix("TOMA") { c.removeFirst(4) }  // no O in codes, so TOMA can't be part of one
     guard c.count == 6, c.allSatisfy(codeAlphabet.contains) else { return nil }
     return "TOMA-" + c
 }
@@ -173,7 +219,7 @@ func session(data: [String: Any]) -> GroupSession? {
 }
 
 enum GroupError: LocalizedError {
-    case offline, notSignedIn, noSuchCode, full, notAllowed
+    case offline, notSignedIn, noSuchCode, full, notAllowed, busy
     var errorDescription: String? {
         switch self {
         case .offline: "Couldn't reach Tomatime Groups. Check your connection."
@@ -181,6 +227,7 @@ enum GroupError: LocalizedError {
         case .noSuchCode: "No group has that invite code. Check it and try again."
         case .full: "This group is full (6 people)."
         case .notAllowed: "You can't do that in this group."
+        case .busy: "A group tomato or group break is already on in this group. Join it from the menu."
         }
     }
 }

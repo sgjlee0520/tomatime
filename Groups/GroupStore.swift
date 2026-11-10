@@ -58,7 +58,7 @@ private func isDenied(_ e: Error) -> Bool { (e as NSError).code == FirestoreErro
     private var meta: [String: TomatoGroup] = [:]      // group docs, members filled in from `members`
     private var members: [String: [Member]] = [:]
     private var codes: [String: String] = [:]          // group id → invite code
-    private var appleSignIn: CheckedContinuation<AuthCredential, Error>?
+    private var appleSignIn: CheckedContinuation<(AuthCredential, String?), Error>?
     private var nonce = ""
 
     var signedIn: Bool { uid != nil }
@@ -143,14 +143,15 @@ private func isDenied(_ e: Error) -> Bool { (e as NSError).code == FirestoreErro
         if useEmulator {
             _ = try await withTimeout { try await Auth.auth().signInAnonymously() }
         } else {
-            let credential = try await appleCredential(anchor: anchor)
+            let (credential, _) = try await appleCredential(anchor: anchor)
             _ = try await withTimeout { try await Auth.auth().signIn(with: credential) }
         }
         uid = nil  // so the state listener (or this) starts the listeners
         userChanged(Auth.auth().currentUser?.uid)
     }
 
-    private func appleCredential(anchor: NSWindow) async throws -> AuthCredential {
+    // The credential, and the one-time authorization code (used to revoke the Apple token on account deletion).
+    private func appleCredential(anchor: NSWindow) async throws -> (AuthCredential, String?) {
         nonce = UUID().uuidString + UUID().uuidString
         let request = ASAuthorizationAppleIDProvider().createRequest()
         request.requestedScopes = []  // no email or name: groups use a typed display name
@@ -166,6 +167,25 @@ private func isDenied(_ e: Error) -> Bool { (e as NSError).code == FirestoreErro
     }
     private var anchorWindow: NSWindow?
 
+    func signOut() throws { try Auth.auth().signOut() }  // the state listener clears everything
+
+    // App Store 5.1.1(v): leaves every group, deletes the display name and the account, and revokes Tomatime's
+    // Sign in with Apple token. Deleting needs a recent sign-in, so it asks Apple again (that also gives the code).
+    func deleteAccount(anchor: NSWindow) async throws {
+        guard let user = Auth.auth().currentUser, let uid else { throw GroupError.notSignedIn }
+        var appleCode: String?
+        if !useEmulator {
+            let (credential, code) = try await appleCredential(anchor: anchor)
+            _ = try await withTimeout { try await user.reauthenticate(with: credential) }
+            appleCode = code
+        }
+        try await online()
+        for gid in groups.map(\.id) { try await leave(gid) }
+        try await withTimeout { try await self.db.document("users/\(uid)").delete() }
+        if let appleCode { try await withTimeout { try await Auth.auth().revokeToken(withAuthorizationCode: appleCode) } }
+        try await withTimeout { try await user.delete() }
+    }
+
     // MARK: Groups
 
     // The display name saved on any of my Macs (nil: never set, or offline).
@@ -179,6 +199,7 @@ private func isDenied(_ e: Error) -> Bool { (e as NSError).code == FirestoreErro
 
     func setName(_ name: String) async throws {
         guard let uid else { throw GroupError.notSignedIn }
+        try await online()
         let batch = db.batch()
         batch.setData(["name": name], forDocument: db.document("users/\(uid)"))
         for g in groups { batch.updateData(["name": name], forDocument: memberDoc(g.id)) }
@@ -189,6 +210,7 @@ private func isDenied(_ e: Error) -> Bool { (e as NSError).code == FirestoreErro
 
     func createGroup(name: String, unlocked: Bool) async throws -> String {
         guard let uid, let myName else { throw GroupError.notSignedIn }
+        try await online()
         for _ in 0..<3 {  // a taken code makes the batch fail; try a fresh one
             var rng = SystemRandomNumberGenerator()
             let code = makeInviteCode(using: &rng)
@@ -211,6 +233,7 @@ private func isDenied(_ e: Error) -> Bool { (e as NSError).code == FirestoreErro
     func join(code typed: String, hasPass: Bool) async throws -> JoinVerdict {
         guard let uid, let myName else { throw GroupError.notSignedIn }
         guard let code = normalizeCode(typed) else { throw GroupError.noSuchCode }
+        try await online()
         let snap = try await withTimeout { try await self.db.document("codes/\(code)").getDocument() }
         guard let gid = snap.data()?["groupID"] as? String else { throw GroupError.noSuchCode }
         if groups.contains(where: { $0.id == gid }) { return .alreadyMember }
@@ -229,6 +252,7 @@ private func isDenied(_ e: Error) -> Bool { (e as NSError).code == FirestoreErro
 
     func leave(_ gid: String) async throws {
         guard let uid, let g = groups.first(where: { $0.id == gid }) else { throw GroupError.notSignedIn }
+        try await online()
         let batch = db.batch()
         let others = g.members.filter { $0.uid != uid }
         if g.memberUIDs == [uid] {  // last one out deletes the group and its code
@@ -245,6 +269,7 @@ private func isDenied(_ e: Error) -> Bool { (e as NSError).code == FirestoreErro
     }
 
     func remove(_ other: String, from gid: String) async throws {
+        try await online()
         let batch = db.batch()
         batch.updateData(["memberUIDs": FieldValue.arrayRemove([other])], forDocument: db.document("groups/\(gid)"))
         batch.deleteDocument(db.document("groups/\(gid)/members/\(other)"))
@@ -252,6 +277,7 @@ private func isDenied(_ e: Error) -> Bool { (e as NSError).code == FirestoreErro
     }
 
     func newCode(_ gid: String) async throws -> String {
+        try await online()
         var rng = SystemRandomNumberGenerator()
         let code = makeInviteCode(using: &rng)
         let batch = db.batch()
@@ -263,6 +289,7 @@ private func isDenied(_ e: Error) -> Bool { (e as NSError).code == FirestoreErro
     }
 
     func rename(_ gid: String, to name: String) async throws {
+        try await online()
         try await withTimeout { try await self.db.document("groups/\(gid)").updateData(["name": name]) }
     }
 
@@ -274,37 +301,44 @@ private func isDenied(_ e: Error) -> Bool { (e as NSError).code == FirestoreErro
 
     // Only this Mac's own minutes (never the iCloud-summed tally), and only from the day you joined.
     func publishSeconds(device: String, local: [String: Double]) {
-        let f = DateFormatter()
-        f.dateFormat = "yyyy-M-d"
         for g in groups {
             guard let joined = g.members.first(where: { $0.uid == uid })?.joinedAt else { continue }
-            let since = Calendar.current.startOfDay(for: joined)
-            let days = local.filter { (f.date(from: $0.key) ?? .distantPast) >= since }
-            memberDoc(g.id).updateData([FieldPath(["secondsByDevice", device]): days])
+            memberDoc(g.id).updateData([FieldPath(["secondsByDevice", device]): secondsSince(local, joined: joined)])
         }
     }
 
     // MARK: Group tomatoes
 
+    // Refused (GroupError.busy) while a group tomato or a group break is on: it would wipe it out for the others.
     func startSession(_ gid: String, tierName: String, minutes: Double) async throws {
         guard let uid else { throw GroupError.notSignedIn }
-        try await withTimeout {
-            try await self.sessionDoc(gid).setData([
-                "id": UUID().uuidString, "round": 1, "startedBy": uid, "starterName": self.myName ?? "",
-                "tierName": tierName, "minutes": minutes, "createdAt": FieldValue.serverTimestamp(),
-                "cancelled": false, "joined": [uid], "nextJoined": [], "devices": [uid: deviceKey]])
+        try await online()  // the transaction alone isn't enough: disableNetwork() doesn't stop transaction calls
+        let ref = sessionDoc(gid), name = myName ?? "", device = deviceKey
+        try await transact { tx in
+            let current = try tx.getDocument(ref).data().flatMap { session(data: plain($0) as! [String: Any]) }
+            guard canStartSession(current, now: Date()) else { throw GroupError.busy }
+            tx.setData(["id": UUID().uuidString, "round": 1, "startedBy": uid, "starterName": name, "tierName": tierName,
+                        "minutes": minutes, "createdAt": FieldValue.serverTimestamp(), "cancelled": false,
+                        "joined": [uid], "nextJoined": [], "devices": [uid: device]], forDocument: ref)
         }
     }
 
     // Joining also claims the tomato for this Mac: my other Macs see `devices` and stand down.
-    func setJoined(_ gid: String, joined: Bool) { optIn(gid, "joined", joined) }
-    func setNextJoined(_ gid: String, joined: Bool) { optIn(gid, "nextJoined", joined) }
+    // Only for round `sid`: a click that lands after that round was replaced or moved on changes nothing.
+    func setJoined(_ gid: String, sid: String, joined: Bool) { optIn(gid, sid, "joined", joined) }
+    func setNextJoined(_ gid: String, sid: String, joined: Bool) { optIn(gid, sid, "nextJoined", joined) }
 
-    private func optIn(_ gid: String, _ list: String, _ on: Bool) {
+    private func optIn(_ gid: String, _ sid: String, _ list: String, _ on: Bool) {
         guard let uid else { return }
-        var d: [AnyHashable: Any] = [list: on ? FieldValue.arrayUnion([uid]) : FieldValue.arrayRemove([uid])]
-        if on { d[FieldPath(["devices", uid])] = deviceKey }
-        sessionDoc(gid).updateData(d)
+        let ref = sessionDoc(gid), device = deviceKey
+        Task {
+            try? await transact { tx in
+                guard (try tx.getDocument(ref).data()?["id"] as? String) == sid else { return }
+                var d: [AnyHashable: Any] = [list: on ? FieldValue.arrayUnion([uid]) : FieldValue.arrayRemove([uid])]
+                if on { d[FieldPath(["devices", uid])] = device }
+                tx.updateData(d, forDocument: ref)
+            }
+        }
     }
 
     // Everyone opted in computes the same next start, so racing callers write the same thing; only the first counts.
@@ -318,9 +352,41 @@ private func isDenied(_ e: Error) -> Bool { (e as NSError).code == FirestoreErro
         }) { _, _ in }
     }
 
-    func cancelSession(_ gid: String) { sessionDoc(gid).updateData(["cancelled": true]) }
+    func cancelSession(_ gid: String, sid: String) {
+        let ref = sessionDoc(gid)
+        Task {
+            try? await transact { tx in
+                guard (try tx.getDocument(ref).data()?["id"] as? String) == sid else { return }
+                tx.updateData(["cancelled": true], forDocument: ref)
+            }
+        }
+    }
 
     // MARK: Helpers
+
+    // User actions check the server first. Otherwise Firestore applies a write locally, queues it while offline
+    // and sends it whenever the network is back, even after a relaunch (final review C1).
+    private func online() async throws {
+        guard let uid else { throw GroupError.notSignedIn }
+        _ = try await withTimeout(5) { try await self.db.document("users/\(uid)").getDocument(source: .server) }
+    }
+
+    // A transaction never shows locally or queues: offline it just fails. Each attempt checks a deadline,
+    // so a retry after an outage can't land long after the user gave up.
+    private func transact(_ body: @escaping (Transaction) throws -> Void) async throws {
+        let deadline = Date() + 8
+        try await withTimeout {
+            _ = try await self.db.runTransaction { tx, errorPointer in
+                do {
+                    guard Date() < deadline else { throw GroupError.offline }
+                    try body(tx)
+                } catch {
+                    errorPointer?.pointee = error as NSError
+                }
+                return nil
+            }
+        }
+    }
 
     private func memberDoc(_ gid: String) -> DocumentReference { db.document("groups/\(gid)/members/\(uid ?? "-")") }
     private func sessionDoc(_ gid: String) -> DocumentReference { db.document("groups/\(gid)/sessions/current") }
@@ -355,6 +421,36 @@ private func isDenied(_ e: Error) -> Bool { (e as NSError).code == FirestoreErro
                 return 1
             }
             print("SMOKE SAW Mina")
+            // Offline, "Start group tomato" fails and starts nothing, then or later (final review C1).
+            guard let gid = groups.first?.id else { return 1 }
+            try await db.disableNetwork()
+            let started = (try? await startSession(gid, tierName: "Red", minutes: 25)) != nil
+            let shown = sessions[gid] != nil
+            try await db.enableNetwork()
+            try await Task.sleep(for: .seconds(3))
+            let saved = try await withTimeout { try await self.sessionDoc(gid).getDocument(source: .server) }.exists
+            guard !started, !shown, !saved else {
+                print("SMOKE ERROR offline start: returned \(started), shown \(shown), saved later \(saved)")
+                return 1
+            }
+            print("SMOKE offline start refused")
+            // Online it starts; a second start while it's on is refused, not an overwrite (final review I1).
+            try await startSession(gid, tierName: "Red", minutes: 25)
+            if (try? await startSession(gid, tierName: "Green", minutes: 20)) != nil {
+                print("SMOKE ERROR a second start replaced the first")
+                return 1
+            }
+            print("SMOKE second start refused")
+            // A click meant for a round that's gone changes nothing (final review I1).
+            setNextJoined(gid, sid: "an-old-round", joined: true)
+            try await Task.sleep(for: .seconds(2))
+            let next = try await withTimeout { try await self.sessionDoc(gid).getDocument(source: .server) }.data()?["nextJoined"]
+            guard (next as? [String])?.isEmpty == true else { print("SMOKE ERROR a stale opt-in landed: \(String(describing: next))"); return 1 }
+            print("SMOKE stale opt-in ignored")
+            // Deleting the account leaves the group (Mina becomes the owner), removes the name and the sign-in (I4).
+            let me = uid ?? ""
+            try await deleteAccount(anchor: NSWindow())
+            print("SMOKE DELETED \(me) \(gid)")
             return 0
         } catch {
             print("SMOKE ERROR \(error.localizedDescription)")
@@ -371,8 +467,9 @@ extension GroupStore: ASAuthorizationControllerDelegate, ASAuthorizationControll
                   let token = apple.identityToken.flatMap({ String(data: $0, encoding: .utf8) }) else {
                 appleSignIn?.resume(throwing: GroupError.notSignedIn); appleSignIn = nil; return
             }
-            appleSignIn?.resume(returning: OAuthProvider.appleCredential(withIDToken: token, rawNonce: nonce,
-                                                                         fullName: apple.fullName))
+            appleSignIn?.resume(returning: (OAuthProvider.appleCredential(withIDToken: token, rawNonce: nonce,
+                                                                          fullName: apple.fullName),
+                                            apple.authorizationCode.flatMap { String(data: $0, encoding: .utf8) }))
             appleSignIn = nil
         }
     }

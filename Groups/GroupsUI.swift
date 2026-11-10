@@ -70,7 +70,7 @@ extension App {
                               note: s.round > 1 && s.joined.contains(store.uid ?? "") ? "You picked the group break" : "Auto-join is on",
                               onJoin: { [weak self] in self?.joinRound(g.id, s.id) },
                               onSkip: { [weak self] in self?.skipRound(g.id, s.id) },
-                              onCancel: { [weak self] in self?.store.cancelSession(g.id); self?.skipRound(g.id, s.id) })
+                              onCancel: { [weak self] in self?.store.cancelSession(g.id, sid: s.id); self?.skipRound(g.id, s.id) })
         let (names, waiting) = joinedNames(g, s)
         countdown?.setJoinedNames(names, waiting: waiting)
         if mode != .invite { joinRound(g.id, s.id) }
@@ -92,7 +92,7 @@ extension App {
     func joinRound(_ gid: String, _ sid: String) {
         group.joining = sid
         guard let me = store.uid, let s = store.sessions[gid], s.id == sid else { return }
-        if !s.joined.contains(me) || s.devices[me] != deviceKey { store.setJoined(gid, joined: true) }
+        if !s.joined.contains(me) || s.devices[me] != deviceKey { store.setJoined(gid, sid: sid, joined: true) }
     }
 
     func skipRound(_ gid: String, _ sid: String) {
@@ -100,7 +100,7 @@ extension App {
         if group.joining == sid { group.joining = nil }
         if group.gid == gid { group.gid = nil; group.sid = nil }  // skipping the next round ends the group rhythm
         guard let me = store.uid, let s = store.sessions[gid], s.id == sid else { return }
-        if s.joined.contains(me), s.devices[me] == deviceKey { store.setJoined(gid, joined: false) }
+        if s.joined.contains(me), s.devices[me] == deviceKey { store.setJoined(gid, sid: sid, joined: false) }
     }
 
     func scheduleStart(_ gid: String, _ sid: String, at date: Date) {
@@ -113,7 +113,8 @@ extension App {
         if s.startAt.timeIntervalSinceNow > 0.05 { return scheduleStart(gid, sid, at: s.startAt) }  // server time came in later
         guard group.joining == sid, let me = store.uid else { return }
         group.joining = nil
-        if s.joined.contains(me), !otherMacHasIt(s, me: me, device: deviceKey) { startGroupTomato(gid, s) }
+        // This Mac chose to be in; its join may still be on the way to the server. Only my other Mac's claim stops it.
+        if !otherMacHasIt(s, me: me, device: deviceKey) { startGroupTomato(gid, s) }
     }
 
     // Everyone in it ends at the same second; joining late gets the time left. A solo tomato's minutes so far still count.
@@ -135,10 +136,19 @@ extension App {
 
     // Red screen after a group tomato: 10-minute break that ends as the next group tomato starts.
     @objc func groupBreak() {
-        guard let gid = group.gid, let s = store.sessions[gid], s.id == group.sid else { return startBreak(groupBreakMinutes) }
+        guard let gid = group.gid, let s = store.sessions[gid], s.id == group.sid, joinNextRound(gid, s)
+        else { return startBreak(groupBreakMinutes) }  // missed it
+    }
+
+    // Opt in to the round after `s`: a break that ends as it starts. False when it's under 10 s away.
+    // From the red screen, or from the menu while the others are on their group break.
+    @discardableResult func joinNextRound(_ gid: String, _ s: GroupSession) -> Bool {
         let start = nextRoundStart(after: s.startAt + s.minutes * 60)
-        guard start.timeIntervalSinceNow > Double(countdownSeconds) else { return startBreak(groupBreakMinutes) }  // missed it
-        store.setNextJoined(gid, joined: true)
+        guard start.timeIntervalSinceNow > Double(countdownSeconds) else { return false }
+        store.setNextJoined(gid, sid: s.id, joined: true)
+        countFocus()
+        group.gid = gid
+        group.sid = s.id
         closeOverlay()
         onBreak = true
         autoNext = false
@@ -147,6 +157,7 @@ extension App {
         group.advanceTimer = after(start - Double(countdownSeconds)) { [weak self] in
             self?.store.advanceRound(gid, from: s.round, startAt: start)
         }
+        return true
     }
 
     // Pause, Reset, a tier, Custom, or a solo button on the red screen: only I leave; the others keep going.
@@ -157,8 +168,8 @@ extension App {
         group.advanceTimer?.invalidate()
         if group.showing?.gid == gid { closeCountdown() }
         guard let me = store.uid, let s = store.sessions[gid], s.devices[me] == deviceKey else { return }
-        if s.joined.contains(me), sessionPhase(s, now: Date()) != .over { store.setJoined(gid, joined: false) }
-        if s.nextJoined.contains(me) { store.setNextJoined(gid, joined: false) }
+        if s.joined.contains(me), sessionPhase(s, now: Date()) != .over { store.setJoined(gid, sid: s.id, joined: false) }
+        if s.nextJoined.contains(me) { store.setNextJoined(gid, sid: s.id, joined: false) }
     }
 
     @objc func resetTapped() {
@@ -249,18 +260,18 @@ extension App {
     }
 
     func sessionItem(_ g: TomatoGroup, now: Date) -> NSMenuItem {
-        let start = groupItem("Start group tomato · \(Int(tier.minutes)) min", #selector(startGroupTapped), g.id)
-        guard let s = store.sessions[g.id], let me = store.uid else { return start }
-        switch sessionPhase(s, now: now) {
-        case .over:
-            return start
-        case .countdown:
-            let mine = group.joining == s.id || otherMacHasIt(s, me: me, device: deviceKey)
-            return mine ? info("Group tomato starting…") : groupItem("Group tomato starting — Join", #selector(joinGroupTapped), g.id)
-        case .running(let left):
-            let m = Int((left / 60).rounded(.up))
-            return group.sid == s.id ? info("In this group tomato · \(m) min left")
-                : groupItem("Group tomato in progress — Join (\(m) min left)", #selector(joinGroupTapped), g.id)
+        let s = store.sessions[g.id]
+        let here = s.map { group.joining == $0.id || group.sid == $0.id } ?? false
+        let join = { (title: String) in self.groupItem(title, #selector(self.joinGroupTapped), g.id) }
+        switch sessionMenu(s, me: store.uid ?? "", device: deviceKey, here: here, now: now) {
+        case .start: return groupItem("Start group tomato · \(Int(tier.minutes)) min", #selector(startGroupTapped), g.id)
+        case .starting: return info("Group tomato starting…")
+        case .joinCountdown: return join("Group tomato starting — Join")
+        case .inIt(let m): return info("In this group tomato · \(m) min left")
+        case .otherMac(let m): return info("In this group tomato on your other Mac · \(m) min left")
+        case .joinRunning(let m): return join("Group tomato in progress — Join (\(m) min left)")
+        case .onBreak(let m): return info("Group break · next group tomato in \(m) min")
+        case .joinBreak(let m): return join("Group break · next group tomato in \(m) min — Join")
         }
     }
 
@@ -271,6 +282,10 @@ extension App {
         sub.addItem(groupItem("New Group…", #selector(newGroupTapped)))
         sub.addItem(groupItem("Join with Code…", #selector(joinCodeTapped)))
         if store.signedIn { sub.addItem(groupItem(store.myName.map { "Change My Name (\($0))…" } ?? "Set My Name…", #selector(changeNameTapped))) }
+        if store.signedIn {
+            sub.addItem(groupItem("Sign Out of Groups", #selector(signOutTapped)))
+            sub.addItem(groupItem("Delete My Groups Account…", #selector(deleteAccountTapped)))
+        }
         sub.addItem(.separator())
         let count = groupItem("Show Friends Focusing in Menu Bar", #selector(toggleFriendsCount))
         count.state = UserDefaults.standard.bool(forKey: "hideFriendsCount") ? .off : .on
@@ -312,8 +327,8 @@ extension App {
         if group.gid != gid { leaveGroupTomato() }
         switch sessionPhase(s, now: Date()) {
         case .countdown: joinRound(gid, s.id); scheduleStart(gid, s.id, at: s.startAt)
-        case .running: store.setJoined(gid, joined: true); startGroupTomato(gid, s)
-        case .over: break
+        case .running: store.setJoined(gid, sid: s.id, joined: true); startGroupTomato(gid, s)
+        case .over: joinNextRound(gid, s)  // the others are on their group break
         }
     }
 
@@ -369,6 +384,27 @@ extension App {
 
     @objc func signInTapped() { groupTask { try await self.readyForGroups() } }
 
+    @objc func signOutTapped() {
+        leaveGroupTomato()
+        try? store.signOut()
+    }
+
+    @objc func deleteAccountTapped() {
+        guard confirm("Delete your Groups account?", """
+            You leave all your groups, and your name, status and group minutes are deleted. \
+            Your tomato minutes on this Mac stay. This can't be undone.
+            """, "Delete…")
+        else { return }
+        leaveGroupTomato()
+        groupTask {
+            try await SignInPrompt.run("Delete your Groups account", """
+                Confirm with Apple. Tomatime then leaves your groups, deletes your name and account, \
+                and stops using your Sign in with Apple.
+                """, button: .continue) { try await self.store.deleteAccount(anchor: $0) }
+            self.tell("Your Groups account is deleted.")
+        }
+    }
+
     @objc func newGroupTapped() {
         groupTask {
             try await self.readyForGroups()
@@ -408,7 +444,15 @@ extension App {
 
     // Signed in, with a display name.
     func readyForGroups() async throws {
-        if !store.signedIn { try await SignInPrompt.run() }
+        if !store.signedIn {
+            try await SignInPrompt.run("Focus together", """
+                Groups of up to \(maxGroupSize) people see who's focusing, start tomatoes at the same second, \
+                and compare minutes.
+
+                Sign in with Apple so all your Macs count as one member. Tomatime doesn't ask for your email; \
+                the others see only the name you type next.
+                """, button: .signIn) { try await self.store.signIn(anchor: $0) }
+        }
         if await store.loadName() == nil {
             guard let name = ask("Your name in groups", "The others in your groups see this name. You can change it later.",
                                  button: "Save", limit: 30)
@@ -475,37 +519,35 @@ extension App {
     }
 }
 
-// The Sign in with Apple window: Apple's own button, and what signing in is for.
+// A Sign in with Apple window: Apple's own button and what it's for. `action` runs with this window as the anchor
+// (signing in, or confirming an account deletion); errors show in the window.
 @MainActor final class SignInPrompt: NSObject, NSWindowDelegate {
     private static var open: SignInPrompt?
+    private var action: (NSWindow) async throws -> Void = { _ in }
     private let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 440, height: 240), styleMask: [.titled, .closable],
                                   backing: .buffered, defer: false)
     private let note = NSTextField(wrappingLabelWithString: "")
     private var done: CheckedContinuation<Void, Error>?
 
-    static func run() async throws {
+    static func run(_ title: String, _ text: String, button: ASAuthorizationAppleIDButton.ButtonType,
+                    action: @escaping (NSWindow) async throws -> Void) async throws {
         open?.window.close()  // one at a time
         let p = SignInPrompt()
+        p.action = action
         open = p
         try await withCheckedThrowingContinuation { (c: CheckedContinuation<Void, Error>) in
             p.done = c
-            p.show()
+            p.show(title, text, button)
         }
     }
 
-    private func show() {
-        let head = NSTextField(labelWithString: "Focus together")
+    private func show(_ title: String, _ text: String, _ type: ASAuthorizationAppleIDButton.ButtonType) {
+        let head = NSTextField(labelWithString: title)
         head.font = .systemFont(ofSize: 17, weight: .semibold)
-        let body = NSTextField(wrappingLabelWithString: """
-            Groups of up to \(maxGroupSize) people see who's focusing, start tomatoes at the same second, \
-            and compare minutes.
-
-            Sign in with Apple so all your Macs count as one member. Tomatime doesn't ask for your email; \
-            the others see only the name you type next.
-            """)
+        let body = NSTextField(wrappingLabelWithString: text)
         body.preferredMaxLayoutWidth = 392
         let dark = NSApp.effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
-        let button = ASAuthorizationAppleIDButton(authorizationButtonType: .signIn, authorizationButtonStyle: dark ? .white : .black)
+        let button = ASAuthorizationAppleIDButton(authorizationButtonType: type, authorizationButtonStyle: dark ? .white : .black)
         button.target = self
         button.action = #selector(signIn)
         NSLayoutConstraint.activate([button.widthAnchor.constraint(equalToConstant: 240),
@@ -530,13 +572,13 @@ extension App {
         note.stringValue = ""
         Task {
             do {
-                try await GroupStore.shared.signIn(anchor: window)
+                try await action(window)
                 finish(nil)
             } catch let e as ASAuthorizationError where e.code == .canceled {
             } catch let e as GroupError {
                 note.stringValue = e.localizedDescription
             } catch {
-                note.stringValue = "Couldn't sign in: \(error.localizedDescription)"
+                note.stringValue = error.localizedDescription
             }
         }
     }

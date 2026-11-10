@@ -5,6 +5,7 @@ cd "${0:A:h}/.."
 mkdir -p build
 swiftc -parse-as-library Groups/GroupRules.swift Tests/RulesCheck.swift -o build/rulescheck
 build/rulescheck
+build/rulescheck -AppleLocale th_TH  # Thai Macs default to the Buddhist calendar
 # Own ports (firebase.test.json), so it runs while a staging emulator (firebase.json) is up.
 export PATH="/opt/homebrew/opt/openjdk@21/bin:$PATH"
 cd firebase

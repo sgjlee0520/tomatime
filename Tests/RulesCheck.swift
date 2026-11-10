@@ -112,6 +112,13 @@ func group(_ members: [Member], unlocked: Bool = true) -> TomatoGroup {
         check(normalizeCode("4k7qm2") == "TOMA-4K7QM2", "no prefix")
         check(normalizeCode("4K7Q") == nil, "too short")
         check(normalizeCode("TOMA-4K7QM0") == nil, "0 not allowed")
+        check(normalizeCode("toma 4k7qm2") == "TOMA-4K7QM2", "space instead of the dash")
+        check(normalizeCode("TOMA4K7QM2") == "TOMA-4K7QM2", "no dash")
+        check(normalizeCode("TOMA–4K7QM2") == "TOMA-4K7QM2", "en dash")
+        check(normalizeCode("TOMA-4K7QM2.") == "TOMA-4K7QM2", "trailing period")
+        check(normalizeCode("“TOMA-4K7QM2”") == "TOMA-4K7QM2", "quoted")
+        check(normalizeCode("4K7 QM2") == "TOMA-4K7QM2", "space inside")
+        check(normalizeCode("TOMA-4K7QM22") == nil, "too long")
 
         // Firestore boundary
         let s = MemberStatus(state: .focus, tierName: "Red", minutes: 25, endsAt: t0 + 100, sessionID: "s1")
@@ -144,6 +151,43 @@ func group(_ members: [Member], unlocked: Bool = true) -> TomatoGroup {
         check(countdownMode(next, me: "b", device: "macD", autoJoin: true, idleSeconds: 0) == nil, "my other Mac joined")
         check(otherMacHasIt(next, me: "b", device: "macD") && !otherMacHasIt(next, me: "b", device: "macC")
               && !otherMacHasIt(cd(), me: "b", device: "macC"), "otherMacHasIt")
+
+        // canStartSession: a new group tomato never wipes out one that's on, or a group break with people in it
+        func gs(startAt: Date, joined: [String] = ["a"], nextJoined: [String] = [], devices: [String: String] = ["a": "macA"],
+                cancelled: Bool = false) -> GroupSession {
+            GroupSession(id: "s", round: 1, startedBy: "a", starterName: "A", tierName: "Red", minutes: 25, startAt: startAt,
+                         cancelled: cancelled, joined: joined, nextJoined: nextJoined, devices: devices)
+        }
+        let groupBreak = gs(startAt: t0 - 27 * 60, nextJoined: ["a"])  // ended 2 min ago; next round at t0 + 8 min
+        check(canStartSession(nil, now: t0), "nothing yet")
+        check(!canStartSession(gs(startAt: t0 + 5), now: t0), "countdown on")
+        check(!canStartSession(gs(startAt: t0 - 60), now: t0), "tomato running")
+        check(canStartSession(gs(startAt: t0 - 30 * 60), now: t0), "over, nobody on the group break")
+        check(!canStartSession(groupBreak, now: t0), "group break with people in it")
+        check(canStartSession(groupBreak, now: t0 + 600), "break over and nobody moved on")
+        check(canStartSession(gs(startAt: t0 + 5, cancelled: true), now: t0), "cancelled")
+
+        // sessionMenu: the group's session line in the menu
+        let running = gs(startAt: t0 - 7 * 60)  // 18 min left
+        check(sessionMenu(nil, me: "b", device: "macB", here: false, now: t0) == .start, "menu: start")
+        check(sessionMenu(gs(startAt: t0 + 5), me: "b", device: "macB", here: false, now: t0) == .joinCountdown, "menu: join countdown")
+        check(sessionMenu(gs(startAt: t0 + 5), me: "b", device: "macB", here: true, now: t0) == .starting, "menu: joined here")
+        check(sessionMenu(gs(startAt: t0 + 5), me: "a", device: "macB", here: false, now: t0) == .starting, "menu: other Mac joined")
+        check(sessionMenu(running, me: "b", device: "macB", here: false, now: t0) == .joinRunning(18), "menu: late join")
+        check(sessionMenu(running, me: "a", device: "macA", here: true, now: t0) == .inIt(18), "menu: in it here")
+        check(sessionMenu(running, me: "a", device: "macB", here: false, now: t0) == .otherMac(18), "menu: in it on my other Mac")
+        check(sessionMenu(groupBreak, me: "b", device: "macB", here: false, now: t0) == .joinBreak(8), "menu: join the group break")
+        check(sessionMenu(groupBreak, me: "a", device: "macA", here: true, now: t0) == .onBreak(8), "menu: on the group break")
+        check(sessionMenu(groupBreak, me: "b", device: "macB", here: false, now: t0 + 475) == .starting, "menu: next round about to start")
+        check(sessionMenu(gs(startAt: t0 - 30 * 60), me: "b", device: "macB", here: false, now: t0) == .start, "menu: over")
+
+        // Day keys are Gregorian whatever this Mac's calendar (tools/test.sh reruns this with a Thai Buddhist calendar)
+        var gregorian = Calendar(identifier: .gregorian)
+        gregorian.timeZone = .current
+        let c = gregorian.dateComponents([.year, .month, .day], from: t0)
+        check(dayKey(t0) == "\(c.year!)-\(c.month!)-\(c.day!)", "Gregorian day key, got \(dayKey(t0))")
+        check(secondsSince([dayKey(t0 - 86400): 60, dayKey(t0): 120, dayKey(t0 + 86400): 30], joined: t0)
+              == [dayKey(t0): 120, dayKey(t0 + 86400): 30], "minutes count from the day you joined")
 
         // withTimeout gives up on work that ignores cancellation (Firestore while offline)
         let began = Date()

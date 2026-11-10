@@ -10,7 +10,8 @@ for i in {1..30}; do grep -q '^SMOKE' $LOG && break; sleep 1; done
 CODE=$(grep -m1 '^SMOKE TOMA-' $LOG | cut -d' ' -f2 || true)
 node tools/smoke.mjs "$CODE"
 node tools/fake-member.mjs join "$CODE" Mina
-for i in {1..30}; do kill -0 $P 2>/dev/null || break; sleep 1; done
-kill $P 2>/dev/null && echo "app still running after 30 s"
+for i in {1..60}; do kill -0 $P 2>/dev/null || break; sleep 1; done
+kill $P 2>/dev/null && echo "app still running after 60 s"
 grep '^SMOKE' $LOG
-wait $P  # the app's exit status: 1 if it never saw Mina
+wait $P  # the app's exit status: 1 if a check inside the app failed
+node tools/smoke.mjs deleted $(grep -m1 '^SMOKE DELETED' $LOG | cut -d' ' -f3-4)
