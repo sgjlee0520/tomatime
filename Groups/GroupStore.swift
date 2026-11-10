@@ -80,7 +80,7 @@ private func isDenied(_ e: Error) -> Bool { (e as NSError).code == FirestoreErro
             Task { @MainActor in self?.myName = snap?.data()?["name"] as? String; self?.changed() }
         }
         groupsListener = db.collection("groups").whereField("memberUIDs", arrayContains: newUID)
-            .addSnapshotListener { [weak self] snap, _ in
+            .addSnapshotListener(includeMetadataChanges: true) { [weak self] snap, _ in  // also: "now saved on the server"
                 Task { @MainActor in self?.groupsArrived(snap?.documents ?? []) }
             }
     }
@@ -104,7 +104,8 @@ private func isDenied(_ e: Error) -> Bool { (e as NSError).code == FirestoreErro
                                              memberUIDs: x["memberUIDs"] as? [String] ?? [],
                                              unlocked: x["unlocked"] as? Bool ?? false, members: [])
             codes[d.documentID] = x["code"] as? String
-            if groupListeners[d.documentID] == nil { listen(to: d.documentID) }
+            // Only once the server has the group: the rules refuse earlier listens, and a refused listener stops for good.
+            if groupListeners[d.documentID] == nil, !d.metadata.hasPendingWrites { listen(to: d.documentID) }
         }
         rebuild()
     }
@@ -332,7 +333,8 @@ private func isDenied(_ e: Error) -> Bool { (e as NSError).code == FirestoreErro
         return m
     }
 
-    // `--emulator --smoke`: sign in, name, create a group, publish a status, print the code, quit. firebase/tools/smoke.sh
+    // `--emulator --smoke`: sign in, name, create a group, publish a status, print the code, see Mina join, quit.
+    // firebase/tools/smoke.sh
     func smoke() async -> Int32 {
         do {
             try await signIn(anchor: NSWindow())
@@ -342,6 +344,17 @@ private func isDenied(_ e: Error) -> Bool { (e as NSError).code == FirestoreErro
             publish(status: MemberStatus(state: .focus, tierName: "Red", minutes: 25, endsAt: Date() + 1500, sessionID: nil))
             try await withTimeout { try await self.db.waitForPendingWrites() }
             print("SMOKE \(code)")
+            fflush(stdout)
+            // smoke.sh has Mina join now. The creator must see her: listeners started before the group was saved
+            // were refused by the rules and stopped for good (2026-11-10).
+            for _ in 0..<150 where !(groups.first?.members.contains { $0.name == "Mina" } ?? false) {
+                try await Task.sleep(for: .milliseconds(100))
+            }
+            guard groups.first?.members.contains(where: { $0.name == "Mina" }) == true else {
+                print("SMOKE ERROR never saw Mina join")
+                return 1
+            }
+            print("SMOKE SAW Mina")
             return 0
         } catch {
             print("SMOKE ERROR \(error.localizedDescription)")
