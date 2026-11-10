@@ -142,6 +142,15 @@ Pause / Reset / tiers / Custom …       ─────────
 - The other buttons work as today and take you out of the group rhythm, back to solo (my call).
 - The rhythm continues until nobody picks the group button (my call).
 
+### Also in 1.2, solo and group (user, 2026-11-10)
+
+- The red screen gets **End session** (Esc): no break, back to a fresh tomato, not started.
+- **The last 60 seconds of a break that starts the next tomato** count down on screen: each number fades
+  out while growing (like the group countdown); the first ones are small in the top-right corner, and each
+  second they get bigger and closer to the middle, up to the group countdown's size. No tint, clicks pass
+  through (my call). In a group break the group's own 10-second countdown takes over at 10 (my call).
+  Plain breaks (no next tomato) have none (my call: nothing starts after them).
+
 ### Tomato Calendar (user)
 
 - A switch at the top: **Me | Us | Physics 115** (one tab per group).

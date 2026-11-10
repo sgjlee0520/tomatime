@@ -177,6 +177,7 @@ final class OverlayWindow: NSPanel {
     var overlays: [NSWindow] = []
     var groupsOn = false  // Firebase configured (plist bundled, or --emulator)
     var countdown: Countdown?
+    var rest: RestCountdown?
     var group = GroupPlay()  // Groups/GroupsUI.swift
 
     func applicationDidFinishLaunching(_: Notification) {
@@ -184,6 +185,11 @@ final class OverlayWindow: NSPanel {
         if groupsOn { GroupStore.shared.start() }
         if CommandLine.arguments.contains("--smoke") {  // firebase/tools/smoke.sh
             Task { exit(await GroupStore.shared.smoke()) }
+            return
+        }
+        if CommandLine.arguments.contains("--rest-demo") {  // the last minute of a break, then quit
+            rest = RestCountdown(endAt: Date() + 60, last: 1)
+            DispatchQueue.main.asyncAfter(deadline: .now() + 62) { exit(0) }
             return
         }
         if CommandLine.arguments.contains("--countdown-demo") {  // look at the three countdown screens, then quit
@@ -408,6 +414,19 @@ final class OverlayWindow: NSPanel {
         customItem.title = custom.map { "Custom tomato · \(Int($0.minutes)) min…" } ?? "Custom tomato…"
         customItem.image = tomato(custom?.color ?? .systemGray, size: 16)
         publishStatus()
+        updateRestCountdown()
+    }
+
+    // The last minute of a break that starts the next tomato counts down on screen (RestCountdown).
+    func updateRestCountdown() {
+        let last = group.gid != nil ? countdownSeconds + 1 : 1
+        if onBreak, autoNext || group.gid != nil, let end, end.timeIntervalSinceNow <= 60,
+           end.timeIntervalSinceNow > Double(last - 1) {
+            if rest?.endAt != end { rest?.close(); rest = RestCountdown(endAt: end, last: last) }
+        } else {
+            rest?.close()
+            rest = nil
+        }
     }
 
     // Pulsing red layer over every screen (above full-screen apps and the menu bar) until a button is picked.
