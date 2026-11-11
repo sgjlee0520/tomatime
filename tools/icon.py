@@ -1,4 +1,4 @@
-"""Build the app icon set from store/logo-source.jpeg (pixel tomato on white) on a white macOS plate.
+"""Build the app icon set from store/logo-source.jpeg (tomato art on white) on a white macOS plate.
 Usage: python3 tools/icon.py"""
 import os
 
