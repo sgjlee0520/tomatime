@@ -79,3 +79,14 @@ func sameTimer(_ a: TimerState?, _ b: TimerState) -> Bool {
     return a.phase == b.phase && a.tier == b.tier && a.minutes == b.minutes && a.running == b.running &&
         abs((a.endAt ?? 0) - (b.endAt ?? 0)) < 1 && (a.running || abs(a.left - b.left) < 1)
 }
+
+// A different tomato (or break) from the one shown: replace the Live Activity rather than update it.
+// firebase/functions/push.js newSession is the same rule.
+func isNewSession(_ prev: TimerState?, _ s: TimerState, now: Date) -> Bool {
+    guard let prev else { return true }
+    return prev.phase != s.phase || prev.tier != s.tier || prev.minutes != s.minutes ||
+        (prev.running && (prev.endAt ?? 0) <= now.timeIntervalSince1970)
+}
+
+// Device ids travel as text; tokens as lowercase hex.
+func hex(_ d: Data) -> String { d.map { String(format: "%02x", $0) }.joined() }

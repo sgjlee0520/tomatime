@@ -29,3 +29,26 @@ icon.alpha_composite(tomato, ((1024 - tomato.width) // 2, (1024 - tomato.height)
 for px in (16, 32, 64, 128, 256, 512, 1024):
     icon.resize((px, px), Image.LANCZOS).save(os.path.join(SET, f"{px}.png"))
 print("icon set written; tomato", tomato.size)
+
+# iPhone / Watch: one 1024 icon each (the system rounds or circles it), white, tomato filling ~78%; plus the
+# cut-out tomato the apps and Live Activity draw.
+import json
+def save_set(folder, name, img, contents):
+    os.makedirs(folder, exist_ok=True)
+    img.save(os.path.join(folder, name))
+    json.dump(contents, open(os.path.join(folder, "Contents.json"), "w"), indent=2)
+
+def square(scale):
+    out = Image.new("RGB", (1024, 1024), "white")
+    t = tomato.resize((round(tomato.width * scale), round(tomato.height * scale)), Image.LANCZOS)
+    out.paste(t, ((1024 - t.width) // 2, (1024 - t.height) // 2), t)
+    return out
+
+info = {"author": "xcode", "version": 1}
+for target, platform, scale in (("iOS", "ios", 800 / 600), ("Watch", "watchos", 720 / 600)):
+    save_set(os.path.join(ROOT, target, "Assets.xcassets", "AppIcon.appiconset"), "icon.png", square(scale),
+             {"images": [{"filename": "icon.png", "idiom": "universal", "platform": platform, "size": "1024x1024"}], "info": info})
+    save_set(os.path.join(ROOT, target, "Assets.xcassets", "Tomato.imageset"), "tomato.png", tomato,
+             {"images": [{"filename": "tomato.png", "idiom": "universal"}], "info": info})
+    json.dump({"info": info}, open(os.path.join(ROOT, target, "Assets.xcassets", "Contents.json"), "w"))
+print("iPhone and Watch icons written")

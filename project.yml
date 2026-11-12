@@ -2,6 +2,14 @@ name: Tomatime
 options:
   deploymentTarget:
     macOS: "14.0"
+    iOS: "18.0"
+    watchOS: "11.0"
+settings:
+  base:
+    DEVELOPMENT_TEAM: 976B3SJZGY
+    MARKETING_VERSION: "1.2"
+    CURRENT_PROJECT_VERSION: "7"
+    SWIFT_VERSION: "5.0"
 packages:
   Firebase:
     url: https://github.com/firebase/firebase-ios-sdk
@@ -36,10 +44,6 @@ targets:
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.sgjlee.tomatime
-        DEVELOPMENT_TEAM: 976B3SJZGY
-        MARKETING_VERSION: "1.2"
-        CURRENT_PROJECT_VERSION: "6"
-        SWIFT_VERSION: "5.0"
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         ENABLE_HARDENED_RUNTIME: YES
         CODE_SIGN_STYLE: Manual
@@ -51,3 +55,67 @@ targets:
         CODE_SIGN_IDENTITY: $(TOMATIME_SIGN_IDENTITY)
         PROVISIONING_PROFILE_SPECIFIER: $(TOMATIME_PROFILE)
         CODE_SIGN_ENTITLEMENTS: $(TOMATIME_ENTITLEMENTS)
+
+  # iPhone app (same bundle id as the Mac app: one App Store record, universal purchase). Automatic signing.
+  TomatimeiOS:
+    type: application
+    platform: iOS
+    sources:
+      - iOS
+      - Shared
+      - path: GoogleService-Info.plist
+        optional: true
+        buildPhase: resources
+    dependencies:
+      - package: Firebase
+        product: FirebaseAuth
+      - package: Firebase
+        product: FirebaseFirestore
+      - target: TomatimeLive
+    info:
+      path: iOS/Info.plist
+      properties:
+        CFBundleDisplayName: Tomatime
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        UILaunchScreen: {}
+        UISupportedInterfaceOrientations: [UIInterfaceOrientationPortrait]
+        UIBackgroundModes: [remote-notification]
+        NSSupportsLiveActivities: true
+        ITSAppUsesNonExemptEncryption: false
+    entitlements:
+      path: iOS/TomatimeiOS.entitlements
+      properties:
+        aps-environment: development
+        com.apple.developer.applesignin: [Default]
+    settings:
+      base:
+        PRODUCT_NAME: Tomatime
+        PRODUCT_BUNDLE_IDENTIFIER: com.sgjlee.tomatime
+        TARGETED_DEVICE_FAMILY: "1"
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        CODE_SIGN_STYLE: Automatic
+
+  # Live Activity: lock screen, Dynamic Island, Apple Watch Smart Stack.
+  TomatimeLive:
+    type: app-extension
+    platform: iOS
+    sources:
+      - Live
+      - Shared/TomatoTimer.swift
+      - Shared/TomatoActivity.swift
+      - Shared/TomatoStyle.swift
+      - iOS/Assets.xcassets
+    info:
+      path: Live/Info.plist
+      properties:
+        CFBundleDisplayName: Tomatime
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        NSExtension:
+          NSExtensionPointIdentifier: com.apple.widgetkit-extension
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.sgjlee.tomatime.live
+        TARGETED_DEVICE_FAMILY: "1"
+        CODE_SIGN_STYLE: Automatic

@@ -220,6 +220,10 @@ func group(_ members: [Member], unlocked: Bool = true) -> TomatoGroup {
         check(!sameTimer(red, held) && !sameTimer(nil, red) && !sameTimer(red, again), "pause / resume are changes")
         check(sameTimer(.idle(by: "a", now: t0), .idle(by: "b", now: t0 + 9)), "idle is idle")
         check(sameTimer(held, held.paused(by: "x", now: t0)), "paused twice at the same point is the same")
+        check(!isNewSession(red, held, now: t0 + 100) && !isNewSession(held, again, now: t0 + 500), "pause/resume: same tomato")
+        check(isNewSession(nil, red, now: t0) && isNewSession(red, .start(tier: "Golden", minutes: 45, phase: .focus, by: "m", now: t0), now: t0), "new tier: new tomato")
+        check(isNewSession(red, red, now: t0 + 1500), "after it ran out: new tomato")
+        check(hex(Data([0, 171, 255])) == "00abff", "hex tokens")
         check(tomatoTiers.map(\.minutes) == [20, 25, 45, 60], "the four tiers")
 
         print("rules ok")
