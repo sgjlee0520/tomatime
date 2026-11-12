@@ -199,6 +199,25 @@ func group(_ members: [Member], unlocked: Bool = true) -> TomatoGroup {
         } catch GroupError.offline { timedOut = true } catch {}
         check(timedOut && Date().timeIntervalSince(began) < 1, "timeout returns in time (took \(Date().timeIntervalSince(began)) s)")
 
+        // Shared timer (Shared/TomatoTimer.swift): one document Mac, iPhone and Watch all follow
+        let now = t0.timeIntervalSince1970
+        let red = TimerState.start(tier: "Red", minutes: 25, phase: .focus, by: "mac", now: t0)
+        check(red.endAt == now + 1500 && red.running && red.by == "mac" && red.at == now, "start sets endAt from minutes")
+        check(red.remaining(now: t0 + 100) == 1400, "remaining while running")
+        check(red.remaining(now: t0 + 9999) == 0, "remaining never below 0")
+        let held = red.paused(by: "phone", now: t0 + 100)
+        check(held.left == 1400 && !held.running && held.endAt == nil && held.by == "phone", "pause keeps what is left")
+        check(held.remaining(now: t0 + 5000) == 1400, "paused time does not run")
+        let again = held.resumed(by: "watch", now: t0 + 500)
+        check(again.endAt == now + 1900 && again.running && again.by == "watch", "resume restarts from what was left")
+        check(red.focusModeOn(now: t0 + 1) && !red.focusModeOn(now: t0 + 1500), "Focus on only before the end")
+        check(!held.focusModeOn(now: t0 + 101), "no Focus while paused")
+        check(!TimerState.start(tier: "Break", minutes: 5, phase: .rest, by: "m", now: t0).focusModeOn(now: t0 + 1), "no Focus on a break")
+        check(!TimerState.idle(by: "m", now: t0).focusModeOn(now: t0), "no Focus when idle")
+        check(TimerState(data: red.data) == red && TimerState(data: held.data) == held, "survives a Firestore round trip")
+        check(TimerState(data: ["tier": "Red"]) == nil, "no phase → not a timer")
+        check(tomatoTiers.map(\.minutes) == [20, 25, 45, 60], "the four tiers")
+
         print("rules ok")
     }
 }
