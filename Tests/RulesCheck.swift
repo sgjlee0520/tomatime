@@ -216,6 +216,10 @@ func group(_ members: [Member], unlocked: Bool = true) -> TomatoGroup {
         check(!TimerState.idle(by: "m", now: t0).focusModeOn(now: t0), "no Focus when idle")
         check(TimerState(data: red.data) == red && TimerState(data: held.data) == held, "survives a Firestore round trip")
         check(TimerState(data: ["tier": "Red"]) == nil, "no phase → not a timer")
+        check(sameTimer(red, TimerState.start(tier: "Red", minutes: 25, phase: .focus, by: "phone", now: t0 + 0.4)), "same tomato, other device")
+        check(!sameTimer(red, held) && !sameTimer(nil, red) && !sameTimer(red, again), "pause / resume are changes")
+        check(sameTimer(.idle(by: "a", now: t0), .idle(by: "b", now: t0 + 9)), "idle is idle")
+        check(sameTimer(held, held.paused(by: "x", now: t0)), "paused twice at the same point is the same")
         check(tomatoTiers.map(\.minutes) == [20, 25, 45, 60], "the four tiers")
 
         print("rules ok")

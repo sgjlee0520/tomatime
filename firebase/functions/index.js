@@ -16,6 +16,9 @@ export const timerPush = onDocumentWritten(
     const s = event.data?.after?.data();
     if (!s) return;
     const db = getFirestore();
+    // Two quick writes can run out of order: only the newest one pushes.
+    const current = (await db.doc(event.document).get()).data();
+    if (current && (current.at ?? 0) > (s.at ?? 0)) return;
     const devices = await db.collection(`users/${event.params.uid}/devices`).get();
     const pushes = pushesFor(s, event.data.before?.data() ?? null, devices.docs.map((d) => ({ id: d.id, ...d.data() })),
       Math.floor(Date.now() / 1000));

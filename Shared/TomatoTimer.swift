@@ -71,3 +71,11 @@ struct TimerState: Codable, Equatable, Hashable {
             (phase, tier, minutes, running, endAt, left, by, at)
     }
 }
+
+// Same timer, ignoring who changed it and when (and sub-second clock noise).
+func sameTimer(_ a: TimerState?, _ b: TimerState) -> Bool {
+    guard let a else { return false }
+    if a.phase == .idle && b.phase == .idle { return true }
+    return a.phase == b.phase && a.tier == b.tier && a.minutes == b.minutes && a.running == b.running &&
+        abs((a.endAt ?? 0) - (b.endAt ?? 0)) < 1 && (a.running || abs(a.left - b.left) < 1)
+}

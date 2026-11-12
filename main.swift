@@ -252,6 +252,10 @@ final class OverlayWindow: NSPanel {
     var countdown: Countdown?
     var rest: RestCountdown?
     var group = GroupPlay()  // Groups/GroupsUI.swift
+    var breakMinutes = 0.0   // length of the current break
+    var shared: TimerState?  // the shared Mac/iPhone/Watch timer as last written or seen (Groups/TimerSync.swift)
+    var applyingRemote = false
+    var focusModeOn = false  // the "Tomato" Focus, as this Mac last switched it
 
     func applicationDidFinishLaunching(_: Notification) {
         groupsOn = configureFirebase()
@@ -306,7 +310,7 @@ final class OverlayWindow: NSPanel {
                                                name: NSUbiquitousKeyValueStore.didChangeExternallyNotification, object: cloud)
         cloud.synchronize()
         pushToCloud()
-        if groupsOn { startGroups() }
+        if groupsOn { startGroups(); store.onTimer = { [weak self] in self?.applyRemote($0) } }
     }
 
     // Another Mac's minutes arrived (may be posted off the main thread).
@@ -372,6 +376,7 @@ final class OverlayWindow: NSPanel {
         timer = Timer(timeInterval: 1, target: self, selector: #selector(tick), userInfo: nil, repeats: true)
         RunLoop.main.add(timer!, forMode: .common)  // .common keeps it ticking while the menu is open
         render()
+        publishTimer()
     }
 
     func stop() {
@@ -388,6 +393,7 @@ final class OverlayWindow: NSPanel {
         left = max(0, end.timeIntervalSinceNow)
         stop()
         render()
+        publishTimer()
     }
 
     @objc func tick() {
@@ -417,6 +423,7 @@ final class OverlayWindow: NSPanel {
         focused = tier.minutes
         left = tier.minutes * unit
         render()
+        publishTimer(idle: true)
     }
 
     @objc func pickTier(_ sender: NSMenuItem) {
@@ -466,6 +473,7 @@ final class OverlayWindow: NSPanel {
         closeOverlay()
         onBreak = true
         autoNext = thenNext
+        breakMinutes = minutes
         run(minutes * unit)
     }
 
@@ -491,6 +499,7 @@ final class OverlayWindow: NSPanel {
         customItem.image = tomato(custom?.color ?? .systemGray, size: 16)
         publishStatus()
         updateRestCountdown()
+        syncFocusMode()
     }
 
     // The last minute of a break that starts the next tomato counts down on screen (RestCountdown).

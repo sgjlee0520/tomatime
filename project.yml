@@ -13,6 +13,7 @@ targets:
     sources:
       - main.swift
       - Groups
+      - Shared/TomatoTimer.swift
       - Assets.xcassets
       - path: GoogleService-Info.plist  # Firebase client config, kept out of git
         optional: true

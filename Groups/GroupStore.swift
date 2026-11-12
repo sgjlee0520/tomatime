@@ -51,9 +51,11 @@ private func isDenied(_ e: Error) -> Bool { (e as NSError).code == FirestoreErro
     private(set) var groups: [TomatoGroup] = []
     private(set) var sessions: [String: GroupSession] = [:]  // by group id
     var onChange: (() -> Void)?
+    var onTimer: ((TimerState) -> Void)?  // the shared Mac/iPhone/Watch timer changed (TimerSync.swift)
 
     private let db = Firestore.firestore()
     private var groupsListener: ListenerRegistration?
+    private var timerListener: ListenerRegistration?
     private var groupListeners: [String: [ListenerRegistration]] = [:]
     private var meta: [String: TomatoGroup] = [:]      // group docs, members filled in from `members`
     private var members: [String: [Member]] = [:]
@@ -79,6 +81,10 @@ private func isDenied(_ e: Error) -> Bool { (e as NSError).code == FirestoreErro
         db.document("users/\(newUID)").getDocument { [weak self] snap, _ in
             Task { @MainActor in self?.myName = snap?.data()?["name"] as? String; self?.changed() }
         }
+        timerListener = db.document("users/\(newUID)/timer/current").addSnapshotListener { [weak self] snap, _ in
+            guard let snap, !snap.metadata.hasPendingWrites, let s = snap.data().flatMap(TimerState.init(data:)) else { return }
+            Task { @MainActor in self?.onTimer?(s) }
+        }
         groupsListener = db.collection("groups").whereField("memberUIDs", arrayContains: newUID)
             .addSnapshotListener(includeMetadataChanges: true) { [weak self] snap, _ in  // also: "now saved on the server"
                 Task { @MainActor in self?.groupsArrived(snap?.documents ?? []) }
@@ -87,6 +93,7 @@ private func isDenied(_ e: Error) -> Bool { (e as NSError).code == FirestoreErro
 
     private func stopListening() {
         groupsListener?.remove()
+        timerListener?.remove()
         groupListeners.values.joined().forEach { $0.remove() }
         groupListeners = [:]; meta = [:]; members = [:]; sessions = [:]; codes = [:]; groups = []
     }
@@ -181,9 +188,18 @@ private func isDenied(_ e: Error) -> Bool { (e as NSError).code == FirestoreErro
         }
         try await online()
         for gid in groups.map(\.id) { try await leave(gid) }
+        let devices = try await withTimeout { try await self.db.collection("users/\(uid)/devices").getDocuments() }
+        for d in devices.documents { try await withTimeout { try await d.reference.delete() } }
+        try await withTimeout { try await self.db.document("users/\(uid)/timer/current").delete() }
         try await withTimeout { try await self.db.document("users/\(uid)").delete() }
         if let appleCode { try await withTimeout { try await Auth.auth().revokeToken(withAuthorizationCode: appleCode) } }
         try await withTimeout { try await user.delete() }
+    }
+
+    // The shared timer. Queued while offline; Firestore sends it when it can.
+    func writeTimer(_ t: TimerState) {
+        guard let uid else { return }
+        db.document("users/\(uid)/timer/current").setData(t.data)
     }
 
     // MARK: Groups
