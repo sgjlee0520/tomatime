@@ -140,7 +140,6 @@ targets:
         CFBundleVersion: $(CURRENT_PROJECT_VERSION)
         WKApplication: true
         WKCompanionAppBundleIdentifier: com.sgjlee.tomatime
-        WKBackgroundModes: [remote-notification]
     entitlements:
       path: Watch/TomatimeWatch.entitlements
       properties:
