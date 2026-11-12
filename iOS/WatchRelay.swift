@@ -14,7 +14,7 @@ final class WatchRelay: NSObject, WCSessionDelegate {
     func send(_ s: TimerState) {
         guard WCSession.isSupported(), WCSession.default.activationState == .activated, WCSession.default.isPaired,
               let data = try? JSONEncoder().encode(s) else { return }
-        try? WCSession.default.updateApplicationContext(["timer": data])
+        try? WCSession.default.updateApplicationContext(["timer": data, "display": displayStyle.rawValue])
     }
 
     func session(_ session: WCSession, didReceiveMessage message: [String: Any], replyHandler: @escaping ([String: Any]) -> Void) {
@@ -32,6 +32,10 @@ final class WatchRelay: NSObject, WCSessionDelegate {
     @MainActor private func handle(_ m: [String: Any]) {
         let model = TimerModel.shared
         guard let watch = m["watch"] as? String else { return }
+        if let d = m["display"] as? String, d != displayStyle.rawValue {
+            appGroup.set(d, forKey: "display")
+            model.displayChanged()
+        }
         if let token = m["token"] as? String {
             model.saveDevice(["apns": token], id: watch, platform: "watchos")
         }

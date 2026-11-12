@@ -7,6 +7,7 @@ import SwiftUI
 
 struct ContentView: View {
     @EnvironmentObject var model: TimerModel
+    @AppStorage("display", store: appGroup) private var style = DisplayStyle.numbers
 
     var body: some View {
         TimelineView(.periodic(from: .now, by: 1)) { ctx in
@@ -14,8 +15,13 @@ struct ContentView: View {
             let done = s.running && (s.endAt ?? 0) <= ctx.date.timeIntervalSince1970
             VStack(spacing: 22) {
                 Spacer(minLength: 8)
-                Image("Tomato").resizable().scaledToFit().frame(width: 170)
-                    .opacity(s.phase == .rest ? 0.45 : 1)
+                if style == .clock {
+                    RedClock(fraction: clockFraction(s, now: ctx.date), color: s.phase == .rest ? tierColor("Break") : clockRed)
+                        .frame(width: 240, height: 240)
+                } else {
+                    Image("Tomato").resizable().scaledToFit().frame(width: 170)
+                        .opacity(s.phase == .rest ? 0.45 : 1)
+                }
                 Text(heading(s, done: done)).font(.title3.weight(.semibold)).foregroundStyle(.secondary)
                 Group {
                     if s.phase == .idle {
@@ -24,13 +30,19 @@ struct ContentView: View {
                         Countdown(running: s.running, endAt: s.endAt ?? 0, left: s.left)
                     }
                 }
-                .font(.system(size: 76, weight: .semibold, design: .rounded))
+                .font(.system(size: style == .clock ? 40 : 76, weight: .semibold, design: .rounded))
                 .foregroundStyle(tierColor(s.phase == .idle ? tomatoTiers[model.tierIndex].name : s.tier))
                 .contentTransition(.numericText())
 
                 if s.phase == .idle { TierPicker(selection: $model.tierIndex) }
                 buttons(s, done: done)
                 Spacer()
+                Picker("Display", selection: $style) {
+                    Text("Numbers").tag(DisplayStyle.numbers)
+                    Text("Red clock").tag(DisplayStyle.clock)
+                }
+                .pickerStyle(.segmented)
+                .onChange(of: style) { model.displayChanged() }
                 SyncFooter()
             }
             .padding(.horizontal, 24)

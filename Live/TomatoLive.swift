@@ -49,7 +49,8 @@ struct Banner: View {
         if family == .small {  // Apple Watch: big countdown, dimmer in Always On
             VStack(alignment: .leading, spacing: 2) {
                 HStack(spacing: 4) {
-                    Image("Tomato").resizable().scaledToFit().frame(width: 18)
+                    if displayStyle == .clock { ClockRing(s: s).frame(width: 22, height: 22) }
+                    else { Image("Tomato").resizable().scaledToFit().frame(width: 18) }
                     Text(title(s)).font(.caption).lineLimit(1)
                 }
                 Countdown(running: s.running, endAt: s.endAt, left: s.left)
@@ -59,7 +60,8 @@ struct Banner: View {
             .padding(8)
         } else {
             HStack(spacing: 14) {
-                Image("Tomato").resizable().scaledToFit().frame(width: 48)
+                if displayStyle == .clock { ClockRing(s: s).frame(width: 48, height: 48) }
+                else { Image("Tomato").resizable().scaledToFit().frame(width: 48) }
                 VStack(alignment: .leading) {
                     Text(title(s)).font(.headline).foregroundStyle(.white)
                     Text(s.phase == "break" ? "Rest a little" : "Stay with it").font(.subheadline).foregroundStyle(.white.opacity(0.7))
@@ -70,6 +72,23 @@ struct Banner: View {
                     .foregroundStyle(tierColor(s.tier))
             }
             .padding()
+        }
+    }
+}
+
+// The red clock where only system views may move by themselves: a ring that empties as the tomato runs out.
+struct ClockRing: View {
+    let s: TomatoActivity.ContentState
+    var body: some View {
+        let color = s.phase == "break" ? tierColor("Break") : clockRed
+        let end = Date(timeIntervalSince1970: s.endAt)
+        if s.running, end > .now {
+            ProgressView(timerInterval: end.addingTimeInterval(-s.minutes * 60)...end, countsDown: true) { EmptyView() }
+                currentValueLabel: { EmptyView() }
+                .progressViewStyle(.circular).tint(color)
+        } else {
+            ProgressView(value: s.running || s.minutes <= 0 ? 0 : min(1, s.left / (s.minutes * 60)))
+                .progressViewStyle(.circular).tint(color)
         }
     }
 }

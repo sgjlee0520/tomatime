@@ -26,21 +26,26 @@ final class WatchDelegate: NSObject, WKApplicationDelegate {
 
 struct WatchView: View {
     @EnvironmentObject var model: WatchModel
+    @AppStorage("display", store: appGroup) private var style = DisplayStyle.numbers
 
     var body: some View {
         TimelineView(.periodic(from: .now, by: 1)) { ctx in
             let s = model.state
             let done = s.running && (s.endAt ?? 0) <= ctx.date.timeIntervalSince1970
             if s.phase == .idle {
-                List(tomatoTiers.indices, id: \.self) { i in
-                    Button { model.start(tier: i) } label: {
-                        HStack {
-                            Circle().fill(tierColor(tomatoTiers[i].name)).frame(width: 16, height: 16)
-                            Text(tomatoTiers[i].name)
-                            Spacer()
-                            Text("\(Int(tomatoTiers[i].minutes)) min").foregroundStyle(.secondary)
+                List {
+                    ForEach(tomatoTiers.indices, id: \.self) { i in
+                        Button { model.start(tier: i) } label: {
+                            HStack {
+                                Circle().fill(tierColor(tomatoTiers[i].name)).frame(width: 16, height: 16)
+                                Text(tomatoTiers[i].name)
+                                Spacer()
+                                Text("\(Int(tomatoTiers[i].minutes)) min").foregroundStyle(.secondary)
+                            }
                         }
                     }
+                    Toggle("Red clock", isOn: Binding(get: { style == .clock }, set: { style = $0 ? .clock : .numbers }))
+                        .onChange(of: style) { model.displayChanged() }
                 }
                 .navigationTitle("Tomatime")
             } else {
@@ -48,9 +53,15 @@ struct WatchView: View {
                     Text(done ? (s.phase == .rest ? "Break's over" : "Tomato done!")
                          : s.phase == .rest ? "Break" : "\(s.tier) tomato")
                         .font(.footnote).foregroundStyle(.secondary)
-                    Countdown(running: s.running, endAt: s.endAt ?? 0, left: s.left)
-                        .font(.system(size: 44, weight: .semibold, design: .rounded))
-                        .foregroundStyle(tierColor(s.tier))
+                    if style == .clock {
+                        RedClock(fraction: clockFraction(s, now: ctx.date), color: s.phase == .rest ? tierColor("Break") : clockRed)
+                            .frame(height: 96)
+                        Countdown(running: s.running, endAt: s.endAt ?? 0, left: s.left).font(.footnote)
+                    } else {
+                        Countdown(running: s.running, endAt: s.endAt ?? 0, left: s.left)
+                            .font(.system(size: 44, weight: .semibold, design: .rounded))
+                            .foregroundStyle(tierColor(s.tier))
+                    }
                     HStack {
                         if done {
                             if s.phase == .focus { Button("Break") { model.takeBreak() } }

@@ -168,4 +168,10 @@ import UserNotifications
     }
 
     func signOut() { try? Auth.auth().signOut() }
+
+    // Numbers or red clock changed (here or on the watch): tell the watch, redraw the lock screen.
+    func displayChanged() {
+        WatchRelay.shared.send(state)
+        Task { for a in Activity<TomatoActivity>.activities { await a.update(a.content) } }
+    }
 }

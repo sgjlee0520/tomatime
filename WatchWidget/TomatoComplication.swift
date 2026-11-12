@@ -13,7 +13,13 @@ struct Provider: TimelineProvider {
     func getTimeline(in _: Context, completion: @escaping (Timeline<Entry>) -> Void) {
         let s = savedTimer()
         var entries = [Entry(date: .now, timer: s)]
-        if s.running, let end = s.endAt { entries.append(Entry(date: Date(timeIntervalSince1970: end), timer: s)) }  // flips to "done"
+        if s.running, let end = s.endAt {
+            if displayStyle == .clock {  // the red clock moves once a minute
+                var t = Date.now.addingTimeInterval(60)
+                while t.timeIntervalSince1970 < end { entries.append(Entry(date: t, timer: s)); t += 60 }
+            }
+            entries.append(Entry(date: Date(timeIntervalSince1970: end), timer: s))  // flips to "done"
+        }
         completion(Timeline(entries: entries, policy: .never))
     }
 }
@@ -28,6 +34,8 @@ struct ComplicationView: View {
         let live = s.running && end > entry.date
         let color = tierColor(s.tier)
         switch family {
+        case .accessoryCircular where displayStyle == .clock && s.phase != .idle:
+            RedClock(fraction: clockFraction(s, now: entry.date), color: s.phase == .rest ? tierColor("Break") : clockRed)
         case .accessoryCircular:
             if live {
                 ProgressView(timerInterval: Date(timeIntervalSince1970: (s.endAt ?? 0) - s.minutes * 60)...end, countsDown: true) {

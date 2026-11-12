@@ -90,3 +90,9 @@ func isNewSession(_ prev: TimerState?, _ s: TimerState, now: Date) -> Bool {
 
 // Device ids travel as text; tokens as lowercase hex.
 func hex(_ d: Data) -> String { d.map { String(format: "%02x", $0) }.joined() }
+
+// The red clock: how much of this tomato is left, 1 (full) to 0 (empty). Idle shows a full clock.
+func clockFraction(_ s: TimerState, now: Date) -> Double {
+    guard s.phase != .idle, s.minutes > 0 else { return 1 }
+    return min(1, max(0, s.remaining(now: now) / (s.minutes * 60)))
+}

@@ -224,6 +224,9 @@ func group(_ members: [Member], unlocked: Bool = true) -> TomatoGroup {
         check(isNewSession(nil, red, now: t0) && isNewSession(red, .start(tier: "Golden", minutes: 45, phase: .focus, by: "m", now: t0), now: t0), "new tier: new tomato")
         check(isNewSession(red, red, now: t0 + 1500), "after it ran out: new tomato")
         check(hex(Data([0, 171, 255])) == "00abff", "hex tokens")
+        check(clockFraction(red, now: t0 + 750) == 0.5 && clockFraction(red, now: t0 + 9999) == 0, "red clock empties as time runs")
+        check(abs(clockFraction(held, now: t0 + 5000) - 1400.0 / 1500) < 1e-9, "paused clock holds")
+        check(clockFraction(.idle(by: "m", now: t0), now: t0) == 1, "idle clock is full")
         check(tomatoTiers.map(\.minutes) == [20, 25, 45, 60], "the four tiers")
 
         print("rules ok")

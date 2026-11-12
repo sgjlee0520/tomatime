@@ -9,8 +9,8 @@ import WidgetKit
     static let shared = WatchModel()
     @Published private(set) var state = savedTimer()
     let deviceID: String = {
-        let id = watchGroup.string(forKey: "deviceID") ?? "watch-" + UUID().uuidString
-        watchGroup.set(id, forKey: "deviceID")
+        let id = appGroup.string(forKey: "deviceID") ?? "watch-" + UUID().uuidString
+        appGroup.set(id, forKey: "deviceID")
         return id
     }()
 
@@ -41,6 +41,11 @@ import WidgetKit
     }
 
     func sendToken(_ token: Data) { toPhone(["token": hex(token)]) }
+
+    func displayChanged() {
+        WidgetCenter.shared.reloadAllTimelines()
+        toPhone(["display": displayStyle.rawValue])
+    }
 
     private func toPhone(_ message: [String: Any]) {
         let m = message.merging(["watch": deviceID]) { a, _ in a }
@@ -88,6 +93,10 @@ extension WatchModel: WCSessionDelegate {
         Task { @MainActor in self.context(context) }
     }
     private func context(_ c: [String: Any]) {
+        if let d = c["display"] as? String, d != displayStyle.rawValue {
+            appGroup.set(d, forKey: "display")
+            WidgetCenter.shared.reloadAllTimelines()
+        }
         guard let data = c["timer"] as? Data, let s = try? JSONDecoder().decode(TimerState.self, from: data) else { return }
         applyRemote(s)
     }

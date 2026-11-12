@@ -8,7 +8,7 @@ settings:
   base:
     DEVELOPMENT_TEAM: 976B3SJZGY
     MARKETING_VERSION: "1.2"
-    CURRENT_PROJECT_VERSION: "7"
+    CURRENT_PROJECT_VERSION: "8"
     SWIFT_VERSION: "5.0"
 packages:
   Firebase:
@@ -89,6 +89,7 @@ targets:
       properties:
         aps-environment: development
         com.apple.developer.applesignin: [Default]
+        com.apple.security.application-groups: [group.com.sgjlee.tomatime]  # the display setting, read by the Live Activity
     settings:
       base:
         PRODUCT_NAME: Tomatime
@@ -115,6 +116,10 @@ targets:
         CFBundleVersion: $(CURRENT_PROJECT_VERSION)
         NSExtension:
           NSExtensionPointIdentifier: com.apple.widgetkit-extension
+    entitlements:
+      path: Live/TomatimeLive.entitlements
+      properties:
+        com.apple.security.application-groups: [group.com.sgjlee.tomatime]
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.sgjlee.tomatime.live
