@@ -9,6 +9,9 @@ service cloud.firestore {
 
     match /users/{uid} {
       allow read, write: if signedIn() && me() == uid;
+      match /{sub=**} {  // timer/current and devices/{id}: the shared Mac/iPhone/Watch timer
+        allow read, write: if signedIn() && me() == uid;
+      }
     }
 
     // Invite code → group. Anyone signed in may look up one code; nobody may list them.

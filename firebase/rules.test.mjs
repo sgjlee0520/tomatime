@@ -135,3 +135,16 @@ test('11. users write only their own name', async () => {
   await assertSucceeds(setDoc(doc(as('mina'), 'users', 'mina'), { name: 'Mina' }));
   await assertFails(setDoc(doc(as('mina'), 'users', 'jun'), { name: 'Jun' }));
 });
+
+// Shared timer + device push tokens: only the person themself.
+test('timer and devices: owner only', async () => {
+  const timer = { phase: 'focus', tier: 'Red', minutes: 25, running: true, endAt: 1, left: 1500, by: 'mac', at: 0 };
+  await assertSucceeds(setDoc(doc(as('mina'), 'users/mina/timer/current'), timer));
+  await assertSucceeds(getDoc(doc(as('mina'), 'users/mina/timer/current')));
+  await assertSucceeds(setDoc(doc(as('mina'), 'users/mina/devices/phone'), { platform: 'ios', apns: 'ab' }));
+  await assertSucceeds(getDocs(collection(as('mina'), 'users/mina/devices')));
+  await assertFails(getDoc(doc(as('alex'), 'users/mina/timer/current')));
+  await assertFails(setDoc(doc(as('alex'), 'users/mina/timer/current'), timer));
+  await assertFails(getDocs(collection(as('alex'), 'users/mina/devices')));
+  await assertFails(getDoc(doc(env.unauthenticatedContext().firestore(), 'users/mina/timer/current')));
+});
