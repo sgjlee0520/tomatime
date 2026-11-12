@@ -7,11 +7,11 @@ import { pushesFor } from './push.js';
 import { send, dead } from './apns.js';
 
 initializeApp();
-const APNS_KEY = defineSecret('APNS_KEY');        // contents of AuthKey_XXXXXXXXXX.p8
-const APNS_KEY_ID = defineSecret('APNS_KEY_ID');  // its 10-character Key ID
+const APNS_KEY = defineSecret('APNS_KEY');  // contents of the "Tomatime Push" AuthKey_….p8
+const APNS_KEY_ID = 'BKWPZK4CG4';           // its Key ID (not secret: it travels in every token's header)
 
 export const timerPush = onDocumentWritten(
-  { document: 'users/{uid}/timer/current', maxInstances: 5, secrets: [APNS_KEY, APNS_KEY_ID] },
+  { document: 'users/{uid}/timer/current', maxInstances: 5, secrets: [APNS_KEY] },
   async (event) => {
     const s = event.data?.after?.data();
     if (!s) return;
@@ -23,7 +23,7 @@ export const timerPush = onDocumentWritten(
     const pushes = pushesFor(s, event.data.before?.data() ?? null, devices.docs.map((d) => ({ id: d.id, ...d.data() })),
       Math.floor(Date.now() / 1000));
     await Promise.all(pushes.map(async (p) => {
-      const r = await send(p, APNS_KEY.value(), APNS_KEY_ID.value());
+      const r = await send(p, APNS_KEY.value(), APNS_KEY_ID);
       if (r.status !== 200) console.warn('apns', p.deviceId, p.type, p.payload.aps.event ?? '', r.status, r.reason);
       // An ended Live Activity's token is spent; a new one arrives from the phone. Clear it only if unchanged.
       const spent = p.payload.aps.event === 'end';

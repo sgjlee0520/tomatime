@@ -72,6 +72,7 @@ targets:
       - package: Firebase
         product: FirebaseFirestore
       - target: TomatimeLive
+      - target: TomatimeWatch
     info:
       path: iOS/Info.plist
       properties:
@@ -118,4 +119,63 @@ targets:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.sgjlee.tomatime.live
         TARGETED_DEVICE_FAMILY: "1"
+        CODE_SIGN_STYLE: Automatic
+
+  # Apple Watch app, inside the iPhone app. No Firebase on watchOS: it talks to the shared timer through the phone.
+  TomatimeWatch:
+    type: application
+    platform: watchOS
+    sources:
+      - Watch
+      - Shared/TomatoTimer.swift
+      - Shared/TomatoStyle.swift
+      - Shared/WatchShared.swift
+    dependencies:
+      - target: TomatimeWatchWidget
+    info:
+      path: Watch/Info.plist
+      properties:
+        CFBundleDisplayName: Tomatime
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        WKApplication: true
+        WKCompanionAppBundleIdentifier: com.sgjlee.tomatime
+        WKBackgroundModes: [remote-notification]
+    entitlements:
+      path: Watch/TomatimeWatch.entitlements
+      properties:
+        aps-environment: development
+        com.apple.security.application-groups: [group.com.sgjlee.tomatime]
+    settings:
+      base:
+        PRODUCT_NAME: Tomatime
+        PRODUCT_BUNDLE_IDENTIFIER: com.sgjlee.tomatime.watchkitapp
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        CODE_SIGN_STYLE: Automatic
+
+  # Watch-face complication with the countdown.
+  TomatimeWatchWidget:
+    type: app-extension
+    platform: watchOS
+    sources:
+      - WatchWidget
+      - Shared/TomatoTimer.swift
+      - Shared/TomatoStyle.swift
+      - Shared/WatchShared.swift
+      - Watch/Assets.xcassets
+    info:
+      path: WatchWidget/Info.plist
+      properties:
+        CFBundleDisplayName: Tomatime
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        NSExtension:
+          NSExtensionPointIdentifier: com.apple.widgetkit-extension
+    entitlements:
+      path: WatchWidget/TomatimeWatchWidget.entitlements
+      properties:
+        com.apple.security.application-groups: [group.com.sgjlee.tomatime]
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.sgjlee.tomatime.watchkitapp.widget
         CODE_SIGN_STYLE: Automatic
