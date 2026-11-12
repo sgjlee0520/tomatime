@@ -50,6 +50,7 @@ import UserNotifications
     func pause(by: String? = nil) { if state.running { change(state.paused(by: by ?? deviceID, now: .now)) } }
     func resume(by: String? = nil) { if !state.running, state.phase != .idle { change(state.resumed(by: by ?? deviceID, now: .now)) } }
     func stop(by: String? = nil) { change(.idle(by: by ?? deviceID, now: .now)) }
+    func reset(by: String? = nil) { if state.phase != .idle { change(state.refilled(by: by ?? deviceID, now: .now)) } }
 
     private func change(_ s: TimerState) {
         let prev = state

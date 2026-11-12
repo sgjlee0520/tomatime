@@ -46,13 +46,14 @@ let clockRed = Color(red: 0.90, green: 0.20, blue: 0.15)
 struct RedClock: View {
     let fraction: Double
     var color = clockRed
+    var empty = Color.white
     @Environment(\.isLuminanceReduced) private var dim
 
     var body: some View {
         GeometryReader { g in
             let w = min(g.size.width, g.size.height)
             ZStack {
-                Circle().fill(Color.white.opacity(dim ? 0.2 : 1))
+                Circle().fill(empty.opacity(dim ? 0.2 : 1))
                 Wedge(fraction: fraction).fill(color.opacity(dim ? 0.6 : 1))
                 Circle().stroke(Color.black.opacity(dim ? 0.4 : 0.85), lineWidth: max(1.5, w * 0.02))
             }
@@ -77,3 +78,10 @@ struct Wedge: Shape {
         return p
     }
 }
+
+// Paused: the clock goes gray.
+let pausedColor = Color(white: 0.62)
+let pausedEmpty = Color(white: 0.27)
+
+// Breaks are dialed in like a kitchen timer: a full disc is 30 minutes.
+let maxRestMinutes = 30.0

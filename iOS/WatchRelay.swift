@@ -43,7 +43,8 @@ final class WatchRelay: NSObject, WCSessionDelegate {
         case "start":
             if let i = m["tier"] as? Int, tomatoTiers.indices.contains(i) { model.tierIndex = i }
             model.startTomato(by: watch)
-        case "break": model.startBreak(by: watch)
+        case "break": model.startBreak(minutes: m["minutes"] as? Double ?? 5, by: watch)
+        case "reset": model.reset(by: watch)
         case "pause": model.pause(by: watch)
         case "resume": model.resume(by: watch)
         case "stop": model.stop(by: watch)

@@ -26,10 +26,15 @@ import WidgetKit
     // MARK: Actions: shown here at once, then sent to the phone
 
     func start(tier i: Int) {
+        appGroup.set(i, forKey: "tier")
         let t = tomatoTiers[i]
         act(.start(tier: t.name, minutes: t.minutes, phase: .focus, by: deviceID, now: .now), ["action": "start", "tier": i])
     }
-    func takeBreak() { act(.start(tier: "Break", minutes: 5, phase: .rest, by: deviceID, now: .now), ["action": "break"]) }
+    func takeBreak(minutes: Double) {
+        act(.start(tier: "Break", minutes: minutes, phase: .rest, by: deviceID, now: .now), ["action": "break", "minutes": minutes])
+    }
+    func nextTomato() { start(tier: min(appGroup.object(forKey: "tier") as? Int ?? 1, tomatoTiers.count - 1)) }
+    func reset() { act(state.refilled(by: deviceID, now: .now), ["action": "reset"]) }
     func pause() { act(state.paused(by: deviceID, now: .now), ["action": "pause"]) }
     func resume() { act(state.resumed(by: deviceID, now: .now), ["action": "resume"]) }
     func stop() { act(.idle(by: deviceID, now: .now), ["action": "stop"]) }

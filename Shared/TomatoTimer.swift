@@ -45,6 +45,13 @@ struct TimerState: Codable, Equatable, Hashable {
         return s
     }
 
+    // Reset (↺): the whole tomato again, waiting to start.
+    func refilled(by: String, now: Date) -> TimerState {
+        var s = paused(by: by, now: now)
+        s.left = minutes * 60
+        return s
+    }
+
     func remaining(now: Date) -> Double {
         guard running, let endAt else { return left }
         return max(0, endAt - now.timeIntervalSince1970)

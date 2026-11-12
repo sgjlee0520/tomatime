@@ -8,6 +8,7 @@ import SwiftUI
 struct ContentView: View {
     @EnvironmentObject var model: TimerModel
     @AppStorage("display", store: appGroup) private var style = DisplayStyle.numbers
+    @AppStorage("restMinutes", store: appGroup) private var rest = 5.0
 
     var body: some View {
         TimelineView(.periodic(from: .now, by: 1)) { ctx in
@@ -15,7 +16,9 @@ struct ContentView: View {
             let done = s.running && (s.endAt ?? 0) <= ctx.date.timeIntervalSince1970
             VStack(spacing: 22) {
                 Spacer(minLength: 8)
-                if style == .clock {
+                if done && s.phase == .focus {
+                    BreakDial(minutes: $rest).frame(width: 240, height: 240)
+                } else if style == .clock {
                     RedClock(fraction: clockFraction(s, now: ctx.date), color: s.phase == .rest ? tierColor("Break") : clockRed)
                         .frame(width: 240, height: 240)
                 } else {
@@ -51,7 +54,7 @@ struct ContentView: View {
     }
 
     private func heading(_ s: TimerState, done: Bool) -> String {
-        if done { return s.phase == .rest ? "Break's over" : "Tomato done!" }
+        if done { return s.phase == .rest ? "Break's over" : "Tomato done! Drag to set your break" }
         switch s.phase {
         case .idle: return "Pick a tomato"
         case .rest: return s.running ? "Break" : "Break · paused"
@@ -62,7 +65,7 @@ struct ContentView: View {
     @ViewBuilder private func buttons(_ s: TimerState, done: Bool) -> some View {
         HStack(spacing: 14) {
             if done {
-                if s.phase == .focus { big("5 min break", tint: tierColor("Break")) { model.startBreak() } }
+                if s.phase == .focus { big("Break · \(Int(rest)) min", tint: tierColor("Break")) { model.startBreak(minutes: rest) } }
                 big(s.phase == .focus ? "Done" : "Next tomato", tint: .red) {
                     s.phase == .focus ? model.stop() : model.startTomato()
                 }
@@ -134,5 +137,26 @@ struct SyncFooter: View {
                 if let error { Text(error).font(.caption).foregroundStyle(.red) }
             }
         }
+    }
+}
+
+// Set the break like a kitchen timer: drag around the circle (a full turn is 30 minutes).
+struct BreakDial: View {
+    @Binding var minutes: Double
+    var body: some View {
+        GeometryReader { g in
+            RedClock(fraction: minutes / maxRestMinutes, color: tierColor("Break"))
+                .overlay(Text("\(Int(minutes)) min").font(.title2.bold()).padding(.horizontal, 10).padding(.vertical, 4)
+                    .background(.thinMaterial, in: Capsule()))
+                .contentShape(Circle())
+                .gesture(DragGesture(minimumDistance: 0).onChanged { v in
+                    let dx = v.location.x - g.size.width / 2, dy = g.size.height / 2 - v.location.y
+                    var a = atan2(dx, dy) * 180 / .pi  // 0 at 12 o'clock, clockwise
+                    if a < 0 { a += 360 }
+                    minutes = max(1, min(maxRestMinutes, (a / 360 * maxRestMinutes).rounded()))
+                })
+                .sensoryFeedback(.selection, trigger: minutes)
+        }
+        .aspectRatio(1, contentMode: .fit)
     }
 }

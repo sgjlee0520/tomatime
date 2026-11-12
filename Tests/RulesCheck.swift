@@ -227,6 +227,9 @@ func group(_ members: [Member], unlocked: Bool = true) -> TomatoGroup {
         check(clockFraction(red, now: t0 + 750) == 0.5 && clockFraction(red, now: t0 + 9999) == 0, "red clock empties as time runs")
         check(abs(clockFraction(held, now: t0 + 5000) - 1400.0 / 1500) < 1e-9, "paused clock holds")
         check(clockFraction(.idle(by: "m", now: t0), now: t0) == 1, "idle clock is full")
+        let refill = held.refilled(by: "watch", now: t0 + 200)
+        check(refill.left == 1500 && !refill.running && refill.endAt == nil && refill.phase == .focus && refill.by == "watch", "reset refills, paused")
+        check(clockFraction(refill, now: t0 + 999) == 1, "refilled clock is full")
         check(tomatoTiers.map(\.minutes) == [20, 25, 45, 60], "the four tiers")
 
         print("rules ok")
