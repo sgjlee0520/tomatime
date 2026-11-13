@@ -124,16 +124,35 @@ struct SyncFooter: View {
     @EnvironmentObject var model: TimerModel
     @State private var nonce = ""
     @State private var error: String?
+    @State private var confirmDelete = false
+    @State private var deleter = AccountDeleter()
 
     var body: some View {
         if FirebaseApp.app() == nil {
             EmptyView()
         } else if model.uid != nil {
-            HStack {
-                Label("Synced with your Mac and Watch", systemImage: "checkmark.circle.fill").font(.footnote)
-                    .foregroundStyle(.secondary)
-                Spacer()
-                Button("Sign Out") { model.signOut() }.font(.footnote)
+            VStack(spacing: 4) {
+                HStack {
+                    Label("Synced with your Mac and Watch", systemImage: "checkmark.circle.fill").font(.footnote)
+                        .foregroundStyle(.secondary)
+                    Spacer()
+                    Menu("Account") {
+                        Button("Sign Out") { model.signOut() }
+                        Button("Delete Account…", role: .destructive) { confirmDelete = true }
+                    }
+                    .font(.footnote)
+                }
+                if let error { Text(error).font(.caption).foregroundStyle(.red) }
+            }
+            .confirmationDialog("Delete your Tomatime account?", isPresented: $confirmDelete, titleVisibility: .visible) {
+                Button("Delete Account", role: .destructive) {
+                    Task {
+                        do { try await deleter.run(); error = nil }
+                        catch { self.error = "Couldn't delete the account: \(error.localizedDescription)" }
+                    }
+                }
+            } message: {
+                Text("This takes you out of your groups and deletes your name, synced timer and sign-in from Tomatime's server. Tomatoes on this phone stay. You'll be asked to confirm with Apple.")
             }
         } else {
             VStack(spacing: 6) {

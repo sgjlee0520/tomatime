@@ -1,10 +1,12 @@
 // Cloud Function: every change to a person's shared timer is pushed to their other iPhones and Watches.
 import { onDocumentWritten } from 'firebase-functions/v2/firestore';
+import { onRequest } from 'firebase-functions/v2/https';
 import { defineSecret } from 'firebase-functions/params';
 import { initializeApp } from 'firebase-admin/app';
 import { getFirestore, FieldValue } from 'firebase-admin/firestore';
 import { pushesFor } from './push.js';
 import { send, dead } from './apns.js';
+import { deleteAccount as deleteAccountHandler } from './account.js';
 
 initializeApp();
 const APNS_KEY = defineSecret('APNS_KEY');  // contents of the "Tomatime Push" AuthKey_….p8
@@ -36,3 +38,6 @@ export const timerPush = onDocumentWritten(
     }));
   },
 );
+
+// POST with "Authorization: Bearer <Firebase ID token>": the iPhone's Delete Account (account.js).
+export const deleteAccount = onRequest({ maxInstances: 2 }, deleteAccountHandler);
