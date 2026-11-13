@@ -84,6 +84,7 @@ import WidgetKit
         c.title = s.phase == .rest ? "☕ Break's over" : "🍅 Tomato done!"
         c.body = s.phase == .rest ? "Ready for the next tomato?" : "Nice work. Take a break."
         c.sound = .default
+        c.interruptionLevel = .timeSensitive  // gets through a Focus
         center.add(UNNotificationRequest(identifier: "end", content: c,
                                          trigger: UNTimeIntervalNotificationTrigger(timeInterval: endAt - Date.now.timeIntervalSince1970, repeats: false)))
     }

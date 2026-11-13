@@ -8,7 +8,7 @@ settings:
   base:
     DEVELOPMENT_TEAM: 976B3SJZGY
     MARKETING_VERSION: "1.2"
-    CURRENT_PROJECT_VERSION: "11"
+    CURRENT_PROJECT_VERSION: "12"
     SWIFT_VERSION: "5.0"
 packages:
   Firebase:
@@ -89,6 +89,7 @@ targets:
       properties:
         aps-environment: development
         com.apple.developer.applesignin: [Default]
+        com.apple.developer.usernotifications.time-sensitive: true
         com.apple.security.application-groups: [group.com.sgjlee.tomatime]  # the display setting, read by the Live Activity
     settings:
       base:
@@ -149,6 +150,7 @@ targets:
       path: Watch/TomatimeWatch.entitlements
       properties:
         aps-environment: development
+        com.apple.developer.usernotifications.time-sensitive: true
         com.apple.security.application-groups: [group.com.sgjlee.tomatime]
     settings:
       base:

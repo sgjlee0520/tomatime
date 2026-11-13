@@ -1,5 +1,6 @@
 // Tomatime on Apple Watch: start, pause and stop the same tomato as the iPhone and Mac.
 import SwiftUI
+import UserNotifications
 import WatchKit
 
 @main struct TomatimeWatchApp: App {
@@ -9,8 +10,16 @@ import WatchKit
     }
 }
 
-final class WatchDelegate: NSObject, WKApplicationDelegate {
-    func applicationDidFinishLaunching() { MainActor.assumeIsolated { WatchModel.shared.start() } }
+final class WatchDelegate: NSObject, WKApplicationDelegate, UNUserNotificationCenterDelegate {
+    func applicationDidFinishLaunching() {
+        UNUserNotificationCenter.current().delegate = self
+        MainActor.assumeIsolated { WatchModel.shared.start() }
+    }
+
+    // "Tomato done" / "Break's over" while Tomatime is on screen: watchOS stays silent unless asked to show it.
+    func userNotificationCenter(_: UNUserNotificationCenter, willPresent _: UNNotification) async -> UNNotificationPresentationOptions {
+        [.banner, .sound, .list]
+    }
 
     func didRegisterForRemoteNotifications(withDeviceToken token: Data) {
         Task { @MainActor in WatchModel.shared.sendToken(token) }
