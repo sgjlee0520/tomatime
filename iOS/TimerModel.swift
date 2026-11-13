@@ -18,13 +18,14 @@ import UserNotifications
     private var db: Firestore? { FirebaseApp.app() == nil ? nil : Firestore.firestore() }
     private var listener: ListenerRegistration?
     private var activityTokens: [String: String] = [:]  // Live Activity id → its push token
+    private var tokens: [String: String] = [:]          // apns / pushToStart / activity, also before sign-in
 
     private init() {
         let d = UserDefaults.standard
         deviceID = d.string(forKey: "deviceID") ?? "ios-" + UUID().uuidString
         d.set(deviceID, forKey: "deviceID")
         state = (d.data(forKey: "timer").flatMap { try? JSONDecoder().decode(TimerState.self, from: $0) })
-            ?? .idle(by: "", now: .now)
+            ?? .idle(by: "", now: .distantPast)  // older than anything: the first sync wins
         tierIndex = min(d.object(forKey: "tier") as? Int ?? 1, tomatoTiers.count - 1)
     }
 
@@ -55,7 +56,8 @@ import UserNotifications
     private func change(_ s: TimerState) {
         let prev = state
         apply(s)
-        if s.by == deviceID { Task { await showLiveActivity(s, prev: prev) } }  // the watch's: the server starts it
+        // Signed in, the server handles Live Activities for the watch's changes (we may be in the background).
+        if s.by == deviceID || uid == nil { Task { await showLiveActivity(s, prev: prev) } }
         guard let uid, let db else { return }
         let bg = UIApplication.shared.beginBackgroundTask()  // a watch action may have woken us in the background
         db.document("users/\(uid)/timer/current").setData(s.data) { _ in UIApplication.shared.endBackgroundTask(bg) }
@@ -64,9 +66,14 @@ import UserNotifications
     // MARK: Changes from the Mac or watch
 
     func applyRemote(_ s: TimerState) {
-        // Pushes can arrive late: never go back to an older change.
-        guard s.by != deviceID, s.at >= state.at, !sameTimer(state, s) else { return }
+        guard s.by != deviceID, isNewer(s, than: state) else { return }
         apply(s)
+    }
+
+    // A change made on the watch (its own clock and time): this phone writes it for everyone.
+    func adoptFromWatch(_ s: TimerState) {
+        guard isNewer(s, than: state) else { return }
+        change(s)
     }
 
     private func apply(_ s: TimerState) {
@@ -108,11 +115,15 @@ import UserNotifications
     // Tokens the server needs: one to start a Live Activity, one per running Live Activity to update/end it.
     private func watchActivities() {
         Task {
-            for await t in Activity<TomatoActivity>.pushToStartTokenUpdates { saveDevice(["pushToStart": hex(t)]) }
+            for await t in Activity<TomatoActivity>.pushToStartTokenUpdates { saveToken("pushToStart", hex(t)) }
         }
         Task {
             for a in Activity<TomatoActivity>.activities { follow(a) }
-            for await a in Activity<TomatoActivity>.activityUpdates { follow(a) }
+            for await a in Activity<TomatoActivity>.activityUpdates {
+                // One Live Activity at a time: a newer one (e.g. pushed while ours was starting) replaces the rest.
+                for old in Activity<TomatoActivity>.activities where old.id != a.id { await old.end(nil, dismissalPolicy: .immediate) }
+                follow(a)
+            }
         }
     }
 
@@ -120,12 +131,15 @@ import UserNotifications
         Task {
             for await t in a.pushTokenUpdates {
                 activityTokens[a.id] = hex(t)
-                saveDevice(["activity": hex(t)])
+                saveToken("activity", hex(t))
             }
         }
         Task {
             for await st in a.activityStateUpdates where st == .ended || st == .dismissed {
-                if let t = activityTokens.removeValue(forKey: a.id) { clearActivityToken(t) }
+                if let t = activityTokens.removeValue(forKey: a.id) {
+                    if tokens["activity"] == t { tokens["activity"] = nil }
+                    clearActivityToken(t)
+                }
             }
         }
     }
@@ -137,12 +151,17 @@ import UserNotifications
         listener?.remove()
         uid = newUID
         guard let newUID, let db else { return }
-        saveDevice(["platform": "ios"])
+        saveDevice(tokens)  // the ones that arrived while signed out
         UIApplication.shared.registerForRemoteNotifications()
         listener = db.document("users/\(newUID)/timer/current").addSnapshotListener { [weak self] snap, _ in
             guard let snap, !snap.metadata.hasPendingWrites, let s = snap.data().flatMap(TimerState.init(data:)) else { return }
             Task { @MainActor in self?.applyRemote(s) }
         }
+    }
+
+    func saveToken(_ field: String, _ value: String) {
+        tokens[field] = value
+        saveDevice([field: value])
     }
 
     func saveDevice(_ fields: [String: Any], id: String? = nil, platform: String = "ios") {

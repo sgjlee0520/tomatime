@@ -49,6 +49,8 @@ struct ContentView: View {
                 .pickerStyle(.segmented)
                 .onChange(of: style) { model.displayChanged() }
                 SyncFooter()
+                Link("Privacy Policy", destination: URL(string: "https://sgjlee0520.github.io/app-privacy/tomatime/")!)
+                    .font(.caption2).foregroundStyle(.secondary)
             }
             .padding(.horizontal, 24)
             .padding(.bottom, 12)

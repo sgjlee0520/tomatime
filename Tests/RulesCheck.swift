@@ -230,6 +230,10 @@ func group(_ members: [Member], unlocked: Bool = true) -> TomatoGroup {
         let refill = held.refilled(by: "watch", now: t0 + 200)
         check(refill.left == 1500 && !refill.running && refill.endAt == nil && refill.phase == .focus && refill.by == "watch", "reset refills, paused")
         check(clockFraction(refill, now: t0 + 999) == 1, "refilled clock is full")
+        let fresh = TimerState.idle(by: "", now: .distantPast)  // a phone or watch that has seen nothing yet
+        check(isNewer(red, than: fresh), "a new device takes the running tomato")
+        check(!isNewer(red, than: held) && isNewer(held, than: red), "never go back to an older change")
+        check(!isNewer(held.paused(by: "x", now: t0 + 300), than: held), "same timer again: nothing to do")
         check(tomatoTiers.map(\.minutes) == [20, 25, 45, 60], "the four tiers")
 
         print("rules ok")

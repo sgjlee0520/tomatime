@@ -103,3 +103,7 @@ func clockFraction(_ s: TimerState, now: Date) -> Double {
     guard s.phase != .idle, s.minutes > 0 else { return 1 }
     return min(1, max(0, s.remaining(now: now) / (s.minutes * 60)))
 }
+
+// Take a change from another device only if it is a real change and not older than what we have (pushes and
+// queued watch messages can arrive late).
+func isNewer(_ s: TimerState, than current: TimerState) -> Bool { s.at >= current.at && !sameTimer(current, s) }

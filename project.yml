@@ -8,7 +8,7 @@ settings:
   base:
     DEVELOPMENT_TEAM: 976B3SJZGY
     MARKETING_VERSION: "1.2"
-    CURRENT_PROJECT_VERSION: "14"
+    CURRENT_PROJECT_VERSION: "15"
     SWIFT_VERSION: "5.0"
 packages:
   Firebase:
@@ -108,6 +108,7 @@ targets:
       - Shared/TomatoTimer.swift
       - Shared/TomatoActivity.swift
       - Shared/TomatoStyle.swift
+      - Shared/PrivacyInfo.xcprivacy
       - iOS/Assets.xcassets
     info:
       path: Live/Info.plist
@@ -136,6 +137,7 @@ targets:
       - Shared/TomatoTimer.swift
       - Shared/TomatoStyle.swift
       - Shared/WatchShared.swift
+      - Shared/PrivacyInfo.xcprivacy
     dependencies:
       - target: TomatimeWatchWidget
     info:
@@ -146,6 +148,7 @@ targets:
         CFBundleVersion: $(CURRENT_PROJECT_VERSION)
         WKApplication: true
         WKCompanionAppBundleIdentifier: com.sgjlee.tomatime
+        UIBackgroundModes: [remote-notification]  # pushes with timer changes from the Mac and iPhone
     entitlements:
       path: Watch/TomatimeWatch.entitlements
       properties:
@@ -168,6 +171,7 @@ targets:
       - Shared/TomatoTimer.swift
       - Shared/TomatoStyle.swift
       - Shared/WatchShared.swift
+      - Shared/PrivacyInfo.xcprivacy
       - Watch/Assets.xcassets
     info:
       path: WatchWidget/Info.plist

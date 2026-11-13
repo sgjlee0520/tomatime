@@ -22,9 +22,9 @@ struct Countdown: View {
     let endAt: Double
     let left: Double
     var body: some View {
-        let end = Date(timeIntervalSince1970: endAt)
-        if running, end > .now {
-            Text(timerInterval: Date.now...end, countsDown: true).monospacedDigit()
+        let end = Date(timeIntervalSince1970: endAt), now = Date.now
+        if running, end > now {
+            Text(timerInterval: now...end, countsDown: true).monospacedDigit()
         } else if running {
             Text("Done")
         } else {

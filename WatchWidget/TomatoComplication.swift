@@ -41,7 +41,7 @@ struct ComplicationView: View {
                 ProgressView(timerInterval: Date(timeIntervalSince1970: (s.endAt ?? 0) - s.minutes * 60)...end, countsDown: true) {
                     Text("🍅")
                 } currentValueLabel: {
-                    Text(timerInterval: Date.now...end, countsDown: true).monospacedDigit().font(.system(size: 12))
+                    Text(timerInterval: entry.date...end, countsDown: true).monospacedDigit().font(.system(size: 12))
                 }
                 .progressViewStyle(.circular).tint(color)
             } else {
@@ -49,14 +49,14 @@ struct ComplicationView: View {
             }
         case .accessoryCorner:
             Image("Tomato").resizable().scaledToFit()
-                .widgetLabel { if live { Text(timerInterval: Date.now...end, countsDown: true) } else { Text(s.running ? "Done" : "Tomatime") } }
+                .widgetLabel { if live { Text(timerInterval: entry.date...end, countsDown: true) } else { Text(s.running ? "Done" : "Tomatime") } }
         case .accessoryInline:
-            if live { Text("🍅 ") + Text(timerInterval: Date.now...end, countsDown: true) } else { Text("🍅 Tomatime") }
+            if live { Text("🍅 ") + Text(timerInterval: entry.date...end, countsDown: true) } else { Text("🍅 Tomatime") }
         default:
             VStack(alignment: .leading) {
                 Text(s.phase == .idle ? "Tomatime" : s.phase == .rest ? "☕ Break" : "🍅 \(s.tier) tomato").font(.headline)
                 if live {
-                    Text(timerInterval: Date.now...end, countsDown: true).font(.title2.monospacedDigit()).foregroundStyle(color)
+                    Text(timerInterval: entry.date...end, countsDown: true).font(.title2.monospacedDigit()).foregroundStyle(color)
                 } else {
                     Text(s.phase == .idle ? "No tomato running" : s.running ? "Done" : "Paused · \(clock(s.left))").foregroundStyle(.secondary)
                 }

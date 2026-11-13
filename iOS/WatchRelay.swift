@@ -28,7 +28,7 @@ final class WatchRelay: NSObject, WCSessionDelegate {
         Task { @MainActor in handle(userInfo) }
     }
 
-    // ["action": start|break|pause|resume|stop|state, "watch": id, "tier": index] or ["token": hex, "watch": id]
+    // ["watch": id] with "timer": JSON TimerState, "token": hex push token, or "display": numbers|clock
     @MainActor private func handle(_ m: [String: Any]) {
         let model = TimerModel.shared
         guard let watch = m["watch"] as? String else { return }
@@ -39,16 +39,9 @@ final class WatchRelay: NSObject, WCSessionDelegate {
         if let token = m["token"] as? String {
             model.saveDevice(["apns": token], id: watch, platform: "watchos")
         }
-        switch m["action"] as? String {
-        case "start":
-            if let i = m["tier"] as? Int, tomatoTiers.indices.contains(i) { model.tierIndex = i }
-            model.startTomato(by: watch)
-        case "break": model.startBreak(minutes: m["minutes"] as? Double ?? 5, by: watch)
-        case "reset": model.reset(by: watch)
-        case "pause": model.pause(by: watch)
-        case "resume": model.resume(by: watch)
-        case "stop": model.stop(by: watch)
-        default: break
+        // The watch sends the timer as it set it (its own clock), so a message that waited still means the same.
+        if let data = m["timer"] as? Data, let s = try? JSONDecoder().decode(TimerState.self, from: data), s.by == watch {
+            model.adoptFromWatch(s)
         }
     }
 

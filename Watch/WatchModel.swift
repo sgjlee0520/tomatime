@@ -28,21 +28,21 @@ import WidgetKit
     func start(tier i: Int) {
         appGroup.set(i, forKey: "tier")
         let t = tomatoTiers[i]
-        act(.start(tier: t.name, minutes: t.minutes, phase: .focus, by: deviceID, now: .now), ["action": "start", "tier": i])
+        act(.start(tier: t.name, minutes: t.minutes, phase: .focus, by: deviceID, now: .now))
     }
     func takeBreak(minutes: Double) {
-        act(.start(tier: "Break", minutes: minutes, phase: .rest, by: deviceID, now: .now), ["action": "break", "minutes": minutes])
+        act(.start(tier: "Break", minutes: minutes, phase: .rest, by: deviceID, now: .now))
     }
     func nextTomato() { start(tier: min(appGroup.object(forKey: "tier") as? Int ?? 1, tomatoTiers.count - 1)) }
-    func reset() { act(state.refilled(by: deviceID, now: .now), ["action": "reset"]) }
-    func pause() { act(state.paused(by: deviceID, now: .now), ["action": "pause"]) }
-    func resume() { act(state.resumed(by: deviceID, now: .now), ["action": "resume"]) }
-    func stop() { act(.idle(by: deviceID, now: .now), ["action": "stop"]) }
+    func reset() { act(state.refilled(by: deviceID, now: .now)) }
+    func pause() { act(state.paused(by: deviceID, now: .now)) }
+    func resume() { act(state.resumed(by: deviceID, now: .now)) }
+    func stop() { act(.idle(by: deviceID, now: .now)) }
 
-    private func act(_ s: TimerState, _ message: [String: Any]) {
+    private func act(_ s: TimerState) {
         WKInterfaceDevice.current().play(.click)
         apply(s)
-        toPhone(message)
+        if let data = try? JSONEncoder().encode(s) { toPhone(["timer": data]) }
     }
 
     func sendToken(_ token: Data) { toPhone(["token": hex(token)]) }
@@ -69,7 +69,7 @@ import WidgetKit
     // MARK: Changes from elsewhere
 
     func applyRemote(_ s: TimerState) {
-        guard s.at >= state.at, !sameTimer(state, s) else { return }  // never go back to an older change
+        guard isNewer(s, than: state) else { return }
         apply(s)
     }
 

@@ -19,7 +19,7 @@ final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCent
     }
 
     func application(_: UIApplication, didRegisterForRemoteNotificationsWithDeviceToken token: Data) {
-        Task { @MainActor in TimerModel.shared.saveDevice(["apns": hex(token)]) }
+        Task { @MainActor in TimerModel.shared.saveToken("apns", hex(token)) }
     }
 
     // A change made on the Mac or watch (firebase/functions push.js: {"timer": {...}}).
