@@ -27,10 +27,16 @@ import UserNotifications
         state = (d.data(forKey: "timer").flatMap { try? JSONDecoder().decode(TimerState.self, from: $0) })
             ?? .idle(by: "", now: .distantPast)  // older than anything: the first sync wins
         tierIndex = min(d.object(forKey: "tier") as? Int ?? 1, tomatoTiers.count - 1)
+        #if DEBUG
+        // Store screenshots (tools/screenshots.sh): -demo running | clock | done
+        if let demo = d.string(forKey: "demo") {
+            state = .start(tier: "Red", minutes: 25, phase: .focus, by: "demo", now: .now - (demo == "done" ? 1501 : 201))
+            appGroup.set(demo == "clock" ? "clock" : "numbers", forKey: "display")
+        }
+        #endif
     }
 
     func start() {
-        UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound]) { _, _ in }
         WatchRelay.shared.start()
         watchActivities()
         guard FirebaseApp.app() != nil else { return }
@@ -53,7 +59,13 @@ import UserNotifications
     func stop(by: String? = nil) { change(.idle(by: by ?? deviceID, now: .now)) }
     func reset(by: String? = nil) { if state.phase != .idle { change(state.refilled(by: by ?? deviceID, now: .now)) } }
 
+    // Asked at the first Start (or sign-in), when it's clear why: "Tomato done" alerts.
+    private func askForNotifications() {
+        UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound]) { _, _ in }
+    }
+
     private func change(_ s: TimerState) {
+        if s.by == deviceID { askForNotifications() }
         let prev = state
         apply(s)
         // Signed in, the server handles Live Activities for the watch's changes (we may be in the background).
@@ -152,6 +164,7 @@ import UserNotifications
         uid = newUID
         guard let newUID, let db else { return }
         saveDevice(tokens)  // the ones that arrived while signed out
+        askForNotifications()
         UIApplication.shared.registerForRemoteNotifications()
         listener = db.document("users/\(newUID)/timer/current").addSnapshotListener { [weak self] snap, _ in
             guard let snap, !snap.metadata.hasPendingWrites, let s = snap.data().flatMap(TimerState.init(data:)) else { return }

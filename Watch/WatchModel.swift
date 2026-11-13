@@ -15,7 +15,14 @@ import WidgetKit
     }()
 
     func start() {
-        UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound]) { _, _ in }
+        #if DEBUG
+        // Store screenshots (tools/screenshots.sh): -demo running | clock | done
+        if let demo = UserDefaults.standard.string(forKey: "demo") {
+            state = .start(tier: "Red", minutes: 25, phase: .focus, by: "demo", now: .now - (demo == "done" ? 1501 : 201))
+            appGroup.set(demo == "clock" ? "clock" : "numbers", forKey: "display")
+            return
+        }
+        #endif
         if WCSession.isSupported() {
             WCSession.default.delegate = self
             WCSession.default.activate()
@@ -40,7 +47,8 @@ import WidgetKit
     func stop() { act(.idle(by: deviceID, now: .now)) }
 
     private func act(_ s: TimerState) {
-        WKInterfaceDevice.current().play(.click)
+        UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound]) { _, _ in }  // first time only
+        WKInterfaceDevice.current().play(isPause(from: state, to: s) ? .stop : isResume(from: state, to: s) ? .start : .click)
         apply(s)
         if let data = try? JSONEncoder().encode(s) { toPhone(["timer": data]) }
     }
@@ -70,7 +78,17 @@ import WidgetKit
 
     func applyRemote(_ s: TimerState) {
         guard isNewer(s, than: state) else { return }
+        if isPause(from: state, to: s) { buzzPaused() }
         apply(s)
+    }
+
+    // Paused on the iPhone or Mac: a buzz if Tomatime is on screen, otherwise a small alert (which taps the wrist).
+    private func buzzPaused() {
+        if WKApplication.shared().applicationState == .active { return WKInterfaceDevice.current().play(.stop) }
+        let c = UNMutableNotificationContent()
+        c.title = "⏸ Paused"
+        c.sound = .default
+        UNUserNotificationCenter.current().add(UNNotificationRequest(identifier: "paused", content: c, trigger: nil))
     }
 
     private func apply(_ s: TimerState) {

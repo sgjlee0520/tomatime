@@ -27,7 +27,7 @@ struct ContentView: View {
                         .opacity(s.phase == .rest ? 0.45 : 1)
                 }
                 Text(heading(s, done: done)).font(.title3.weight(.semibold)).foregroundStyle(.secondary)
-                Group {
+                if !done { Group {
                     if s.phase == .idle {
                         Text(clock(tomatoTiers[model.tierIndex].minutes * 60)).monospacedDigit()
                     } else {
@@ -36,7 +36,7 @@ struct ContentView: View {
                 }
                 .font(.system(size: style == .clock ? 40 : 76, weight: .semibold, design: .rounded))
                 .foregroundStyle(tierColor(s.phase == .idle ? tomatoTiers[model.tierIndex].name : s.tier))
-                .contentTransition(.numericText())
+                .contentTransition(.numericText()) }
 
                 if s.phase == .idle { TierPicker(selection: $model.tierIndex) }
                 if done && s.phase == .focus { breakPicker }
@@ -66,7 +66,7 @@ struct ContentView: View {
             }
             Button("Custom") { custom.toggle() }.fontWeight(custom ? .bold : .regular)
         }
-        .buttonStyle(.bordered).tint(tierColor("Break")).controlSize(.large)
+        .buttonStyle(.borderedProminent).tint(tierColor("Break")).controlSize(.large)
     }
 
     private func heading(_ s: TimerState, done: Bool) -> String {

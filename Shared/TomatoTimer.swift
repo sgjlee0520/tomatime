@@ -107,3 +107,7 @@ func clockFraction(_ s: TimerState, now: Date) -> Double {
 // Take a change from another device only if it is a real change and not older than what we have (pushes and
 // queued watch messages can arrive late).
 func isNewer(_ s: TimerState, than current: TimerState) -> Bool { s.at >= current.at && !sameTimer(current, s) }
+
+// The same tomato (or break) stopping or starting to run: the watch buzzes differently for each.
+func isPause(from a: TimerState, to b: TimerState) -> Bool { a.running && !b.running && b.phase != .idle && !isNewSession(a, b, now: .distantPast) }
+func isResume(from a: TimerState, to b: TimerState) -> Bool { !a.running && b.running && a.phase != .idle && a.phase == b.phase && a.tier == b.tier }

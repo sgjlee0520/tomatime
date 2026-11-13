@@ -234,6 +234,8 @@ func group(_ members: [Member], unlocked: Bool = true) -> TomatoGroup {
         check(isNewer(red, than: fresh), "a new device takes the running tomato")
         check(!isNewer(red, than: held) && isNewer(held, than: red), "never go back to an older change")
         check(!isNewer(held.paused(by: "x", now: t0 + 300), than: held), "same timer again: nothing to do")
+        check(isPause(from: red, to: held) && !isPause(from: held, to: again) && !isPause(from: red, to: .idle(by: "m", now: t0)), "pause = running → paused, not stop")
+        check(isResume(from: held, to: again) && !isResume(from: red, to: held) && !isResume(from: .idle(by: "m", now: t0), to: red), "resume = paused → running")
         check(tomatoTiers.map(\.minutes) == [20, 25, 45, 60], "the four tiers")
 
         print("rules ok")
