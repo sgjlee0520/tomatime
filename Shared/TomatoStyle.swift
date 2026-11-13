@@ -83,5 +83,6 @@ struct Wedge: Shape {
 let pausedColor = Color(white: 0.62)
 let pausedEmpty = Color(white: 0.27)
 
-// Breaks are dialed in like a kitchen timer: a full disc is 30 minutes.
+// Break choices when a tomato ends; "Custom" dials 1–30 minutes like a kitchen timer (a full disc is 30).
+let breakChoices: [Double] = [5, 10, 15]
 let maxRestMinutes = 30.0

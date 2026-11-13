@@ -80,7 +80,7 @@ struct WatchView: View {
             .task(id: s.endAt) {  // when it runs out, show the buttons
                 guard s.running, let end = s.endAt else { return }
                 try? await Task.sleep(for: .seconds(max(0, end - Date.now.timeIntervalSince1970)))
-                if !Task.isCancelled { page = 1 }
+                if !Task.isCancelled { page = 0 }  // the break choices (or, after a break, tap for the next tomato)
             }
         }
     }
@@ -89,8 +89,8 @@ struct WatchView: View {
         VStack(spacing: 8) {
             if done {
                 Text(s.phase == .rest ? "Break's over" : "Tomato done!").font(.footnote).foregroundStyle(.secondary)
-                if s.phase == .focus { Button("Break · \(Int(rest)) min") { model.takeBreak(minutes: rest) } }
-                Button("Done") { model.stop() }.tint(.red)
+                if s.phase == .rest { Button("Next tomato") { model.nextTomato() }.tint(.red) }
+                Button("Done") { model.stop() }
             } else {
                 Button(s.running ? "Pause" : "Resume") { s.running ? model.pause() : model.resume() }.tint(.red)
                 Button("Stop") { model.stop() }
@@ -100,19 +100,31 @@ struct WatchView: View {
 }
 
 // Page 1. Running: the red clock; tap to pause (it goes gray, with ↺ to refill), tap again to resume.
-// Tomato over: a break dial, set with the Digital Crown; tap to start the break. Break over: tap for the next tomato.
+// Tomato over: break choices 5 / 10 / 15 min, or the dial (Digital Crown, 1–30 min; tap to start). Break over: tap for the next tomato.
 // Taps while the screen is dimmed are ignored, so a sleeve or a resting wrist can't pause anything.
 struct ClockPage: View {
     let s: TimerState
     @Binding var rest: Double
     @EnvironmentObject var model: WatchModel
     @Environment(\.isLuminanceReduced) private var dim  // wrist down: a touch only wakes the screen
+    @State private var custom = false  // the break dial is open
 
     var body: some View {
         TimelineView(.periodic(from: .now, by: 1)) { ctx in
             let done = s.running && (s.endAt ?? 0) <= ctx.date.timeIntervalSince1970
             ZStack(alignment: .bottomTrailing) {
-                if done && s.phase == .focus {
+                if done && s.phase == .focus && !custom {
+                    Grid(horizontalSpacing: 6, verticalSpacing: 6) {
+                        GridRow { choice(breakChoices[0]); choice(breakChoices[1]) }
+                        GridRow {
+                            choice(breakChoices[2])
+                            Button { custom = true } label: {
+                                Image(systemName: "dial.medium").font(.title3).frame(maxWidth: .infinity, maxHeight: .infinity)
+                            }
+                        }
+                    }
+                    .buttonStyle(.bordered).tint(tierColor("Break"))
+                } else if done && s.phase == .focus {
                     RedClock(fraction: rest / maxRestMinutes, color: tierColor("Break"))
                         .overlay(Text("\(Int(rest)) min").font(.headline).padding(.horizontal, 6)
                             .background(.black.opacity(0.55), in: Capsule()))
@@ -138,6 +150,14 @@ struct ClockPage: View {
                 }
             }
             .padding(4)
+            .onChange(of: s.endAt) { custom = false }
+        }
+    }
+
+    private func choice(_ m: Double) -> some View {
+        Button { model.takeBreak(minutes: m) } label: {
+            VStack(spacing: 0) { Text("\(Int(m))").font(.title2.bold()); Text("min").font(.caption2) }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
     }
 }

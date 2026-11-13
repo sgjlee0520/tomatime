@@ -9,6 +9,7 @@ struct ContentView: View {
     @EnvironmentObject var model: TimerModel
     @AppStorage("display", store: appGroup) private var style = DisplayStyle.numbers
     @AppStorage("restMinutes", store: appGroup) private var rest = 5.0
+    @State private var custom = false  // the break dial is open
 
     var body: some View {
         TimelineView(.periodic(from: .now, by: 1)) { ctx in
@@ -16,7 +17,7 @@ struct ContentView: View {
             let done = s.running && (s.endAt ?? 0) <= ctx.date.timeIntervalSince1970
             VStack(spacing: 22) {
                 Spacer(minLength: 8)
-                if done && s.phase == .focus {
+                if done && s.phase == .focus && custom {
                     BreakDial(minutes: $rest).frame(width: 240, height: 240)
                 } else if style == .clock {
                     RedClock(fraction: clockFraction(s, now: ctx.date), color: s.phase == .rest ? tierColor("Break") : clockRed)
@@ -38,6 +39,7 @@ struct ContentView: View {
                 .contentTransition(.numericText())
 
                 if s.phase == .idle { TierPicker(selection: $model.tierIndex) }
+                if done && s.phase == .focus { breakPicker }
                 buttons(s, done: done)
                 Spacer()
                 Picker("Display", selection: $style) {
@@ -50,11 +52,23 @@ struct ContentView: View {
             }
             .padding(.horizontal, 24)
             .padding(.bottom, 12)
+            .onChange(of: s.endAt) { custom = false }
         }
     }
 
+    // 5 / 10 / 15 start right away; Custom opens the dial.
+    private var breakPicker: some View {
+        HStack(spacing: 8) {
+            ForEach(breakChoices, id: \.self) { m in
+                Button("\(Int(m)) min") { model.startBreak(minutes: m) }
+            }
+            Button("Custom") { custom.toggle() }.fontWeight(custom ? .bold : .regular)
+        }
+        .buttonStyle(.bordered).tint(tierColor("Break")).controlSize(.large)
+    }
+
     private func heading(_ s: TimerState, done: Bool) -> String {
-        if done { return s.phase == .rest ? "Break's over" : "Tomato done! Drag to set your break" }
+        if done { return s.phase == .rest ? "Break's over" : custom ? "Drag to set your break" : "Tomato done! Pick your break" }
         switch s.phase {
         case .idle: return "Pick a tomato"
         case .rest: return s.running ? "Break" : "Break · paused"
@@ -65,7 +79,7 @@ struct ContentView: View {
     @ViewBuilder private func buttons(_ s: TimerState, done: Bool) -> some View {
         HStack(spacing: 14) {
             if done {
-                if s.phase == .focus { big("Break · \(Int(rest)) min", tint: tierColor("Break")) { model.startBreak(minutes: rest) } }
+                if s.phase == .focus && custom { big("Start · \(Int(rest)) min", tint: tierColor("Break")) { model.startBreak(minutes: rest) } }
                 big(s.phase == .focus ? "Done" : "Next tomato", tint: .red) {
                     s.phase == .focus ? model.stop() : model.startTomato()
                 }
