@@ -29,6 +29,7 @@ struct WatchView: View {
     @AppStorage("display", store: appGroup) private var style = DisplayStyle.numbers
     @State private var page = 0
     @AppStorage("restMinutes", store: appGroup) private var rest = 5.0
+    @Environment(\.isLuminanceReduced) private var dim  // wrist down: a touch only wakes the screen
 
     var body: some View {
         let s = model.state
@@ -62,7 +63,7 @@ struct WatchView: View {
                     .foregroundStyle(s.running ? tierColor(s.tier) : pausedColor)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                     .contentShape(Rectangle())
-                    .onLongPressGesture(minimumDuration: 0.5) { s.running ? model.pause() : model.resume() }
+                    .onTapGesture { if !dim { s.running ? model.pause() : model.resume() } }
                     .tag(2)
             }
             .tabViewStyle(.page)
@@ -89,12 +90,14 @@ struct WatchView: View {
     }
 }
 
-// Page 1. Running: the red clock; hold to pause (it goes gray, with ↺ to refill), hold again to resume.
-// Tomato over: a break dial, set with the Digital Crown; hold to start the break. Break over: hold for the next tomato.
+// Page 1. Running: the red clock; tap to pause (it goes gray, with ↺ to refill), tap again to resume.
+// Tomato over: a break dial, set with the Digital Crown; tap to start the break. Break over: tap for the next tomato.
+// Taps while the screen is dimmed are ignored, so a sleeve or a resting wrist can't pause anything.
 struct ClockPage: View {
     let s: TimerState
     @Binding var rest: Double
     @EnvironmentObject var model: WatchModel
+    @Environment(\.isLuminanceReduced) private var dim  // wrist down: a touch only wakes the screen
 
     var body: some View {
         TimelineView(.periodic(from: .now, by: 1)) { ctx in
@@ -107,12 +110,15 @@ struct ClockPage: View {
                         .focusable()
                         .digitalCrownRotation($rest, from: 1, through: maxRestMinutes, by: 1, sensitivity: .low,
                                               isContinuous: false, isHapticFeedbackEnabled: true)
-                        .onLongPressGesture(minimumDuration: 0.5) { model.takeBreak(minutes: rest) }
+                        .contentShape(Circle())
+                        .onTapGesture { if !dim { model.takeBreak(minutes: rest) } }
                 } else {
                     RedClock(fraction: clockFraction(s, now: ctx.date),
                              color: !s.running ? pausedColor : s.phase == .rest ? tierColor("Break") : clockRed,
                              empty: s.running ? .white : pausedEmpty)
-                        .onLongPressGesture(minimumDuration: 0.5) {
+                        .contentShape(Circle())
+                        .onTapGesture {
+                            guard !dim else { return }
                             if done { model.nextTomato() } else if s.running { model.pause() } else { model.resume() }
                         }
                     if !s.running {
