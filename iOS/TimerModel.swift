@@ -66,10 +66,8 @@ import UserNotifications
 
     private func change(_ s: TimerState) {
         if s.by == deviceID { askForNotifications() }
-        let prev = state
         apply(s)
-        // Signed in, the server handles Live Activities for the watch's changes (we may be in the background).
-        if s.by == deviceID || uid == nil { Task { await showLiveActivity(s, prev: prev) } }
+        Task { await showLiveActivity(s) }
         guard let uid, let db else { return }
         let bg = UIApplication.shared.beginBackgroundTask()  // a watch action may have woken us in the background
         db.document("users/\(uid)/timer/current").setData(s.data) { _ in UIApplication.shared.endBackgroundTask(bg) }
@@ -80,6 +78,7 @@ import UserNotifications
     func applyRemote(_ s: TimerState) {
         guard s.by != deviceID, isNewer(s, than: state) else { return }
         apply(s)
+        Task { await showLiveActivity(s) }
     }
 
     // A change made on the watch (its own clock and time): this phone writes it for everyone.
@@ -109,17 +108,24 @@ import UserNotifications
                                          trigger: UNTimeIntervalNotificationTrigger(timeInterval: endAt - Date.now.timeIntervalSince1970, repeats: false)))
     }
 
-    // MARK: Live Activity (this phone's own actions; the rest arrive as pushes)
+    // MARK: Live Activity
 
-    private func showLiveActivity(_ s: TimerState, prev: TimerState) async {
-        let current = Activity<TomatoActivity>.activities
+    // Every change this phone learns of, its own or the Mac's/watch's, goes to its Live Activity here. The server's
+    // pushes do the same, but APNs may delay or drop them (update budget, a token that just changed), and the
+    // island then kept an old time. Same tomato (or break) on screen → update it in place. Otherwise replace it;
+    // signed in and in the background, that's left to the server's push-to-start (only a foreground app may start
+    // one, and ending the mismatched one here could end the one the server just started).
+    private func showLiveActivity(_ s: TimerState) async {
+        let all = Activity<TomatoActivity>.activities
         let content = ActivityContent(state: TomatoActivity.ContentState(s),
                                       staleDate: s.running ? s.endAt.map { Date(timeIntervalSince1970: $0) } : nil)
-        if s.phase != .idle, let a = current.first, !isNewSession(prev, s, now: .now) {
+        if s.phase != .idle, let a = all.first(where: { !isNewSession(TimerState($0.content.state), s, now: .now) }) {
             await a.update(content)
+            for old in all where old.id != a.id { await old.end(nil, dismissalPolicy: .immediate) }
             return
         }
-        for a in current { await a.end(nil, dismissalPolicy: .immediate) }
+        guard s.phase == .idle || uid == nil || UIApplication.shared.applicationState == .active else { return }
+        for a in all { await a.end(nil, dismissalPolicy: .immediate) }
         guard s.phase != .idle else { return }
         _ = try? Activity.request(attributes: TomatoActivity(), content: content, pushType: .token)
     }

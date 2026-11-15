@@ -7,8 +7,8 @@ options:
 settings:
   base:
     DEVELOPMENT_TEAM: 976B3SJZGY
-    MARKETING_VERSION: "1.2"
-    CURRENT_PROJECT_VERSION: "16"
+    MARKETING_VERSION: "1.2.1"
+    CURRENT_PROJECT_VERSION: "19"
     SWIFT_VERSION: "5.0"
 packages:
   Firebase:
@@ -83,6 +83,7 @@ targets:
         UISupportedInterfaceOrientations: [UIInterfaceOrientationPortrait]
         UIBackgroundModes: [remote-notification]
         NSSupportsLiveActivities: true
+        NSSupportsLiveActivitiesFrequentUpdates: true
         ITSAppUsesNonExemptEncryption: false
     entitlements:
       path: iOS/TomatimeiOS.entitlements
@@ -109,7 +110,7 @@ targets:
       - Shared/TomatoActivity.swift
       - Shared/TomatoStyle.swift
       - Shared/PrivacyInfo.xcprivacy
-      - iOS/Assets.xcassets
+      - Live/Assets.xcassets
     info:
       path: Live/Info.plist
       properties:
@@ -172,7 +173,7 @@ targets:
       - Shared/TomatoStyle.swift
       - Shared/WatchShared.swift
       - Shared/PrivacyInfo.xcprivacy
-      - Watch/Assets.xcassets
+      - WatchWidget/Assets.xcassets
     info:
       path: WatchWidget/Info.plist
       properties:

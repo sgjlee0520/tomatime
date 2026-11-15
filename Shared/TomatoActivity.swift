@@ -14,6 +14,14 @@ struct TomatoActivity: ActivityAttributes {
     }
 }
 
+extension TimerState {
+    // What a Live Activity shows, as a timer state (who/when unknown), to compare sessions with isNewSession.
+    init(_ c: TomatoActivity.ContentState) {
+        self.init(phase: TimerPhase(rawValue: c.phase) ?? .idle, tier: c.tier, minutes: c.minutes, running: c.running,
+                  endAt: c.running ? c.endAt : nil, left: c.left, by: "", at: 0)
+    }
+}
+
 extension TomatoActivity.ContentState {
     init(_ s: TimerState) {
         self.init(phase: s.phase.rawValue, tier: s.tier, minutes: s.minutes, running: s.running,
