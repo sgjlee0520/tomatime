@@ -1,0 +1,190 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Tomatime</title>
+<meta name="description" content="A tomato focus timer for studying with other people. Start at the same second as your study group, on Mac, iPhone and Apple Watch.">
+<link rel="icon" href="favicon.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible:wght@400;700&family=Young+Serif&display=swap" rel="stylesheet">
+<style>
+:root {
+  --tomato: #d9322a;      /* the app's "time's up" screen */
+  --tomato-deep: #b8241d;
+  --paper: #ffffff;
+  --ink: #173d23;         /* the leaf, darkened */
+  --leaf: #2f7a3a;
+  --muted: #4d6653;
+  --gold: #e7b21e;
+  --diamond: #7ccdeb;
+  --green: #6cbf4a;
+  --line: #d8e3da;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --paper: #0f2316; --ink: #eef5ef; --muted: #a9c2ae; --line: #2a4532; --leaf: #8fd39b;
+  }
+}
+:root[data-theme="dark"] {
+  --paper: #0f2316; --ink: #eef5ef; --muted: #a9c2ae; --line: #2a4532; --leaf: #8fd39b;
+}
+* { box-sizing: border-box; }
+html { -webkit-text-size-adjust: 100%; }
+body {
+  margin: 0; background: var(--paper); color: var(--ink);
+  font: 400 1.0625rem/1.6 "Atkinson Hyperlegible", system-ui, sans-serif;
+}
+a { color: inherit; }
+:focus-visible { outline: 3px solid var(--gold); outline-offset: 3px; border-radius: 6px; }
+.wrap { max-width: 68rem; margin: 0 auto; padding: 0 1.5rem; }
+
+/* Hero: the red screen */
+.hero { background: var(--tomato); color: #fff; padding: 1.75rem 0 4.5rem; }
+.brand { display: flex; align-items: center; gap: .6rem; font: 400 1.25rem "Young Serif", Georgia, serif; text-decoration: none; }
+.brand img { width: 34px; height: auto; }
+.hero-grid { display: grid; grid-template-columns: 1.15fr .85fr; gap: 3rem; align-items: center; margin-top: 3.5rem; }
+h1 { font: 400 clamp(3rem, 8vw, 5.75rem)/1 "Young Serif", Georgia, serif; margin: 0 0 1.5rem; letter-spacing: -.01em; }
+.lede { font-size: 1.25rem; max-width: 34rem; margin: 0 0 2.25rem; }
+
+.get { display: flex; flex-wrap: wrap; gap: .75rem; }
+.get a, .get span {
+  display: inline-flex; flex-direction: column; justify-content: center; min-height: 3.75rem;
+  padding: .6rem 1.25rem; border-radius: 14px; text-decoration: none; line-height: 1.25;
+}
+.get a { background: #fff; color: var(--tomato-deep); font-weight: 700; }
+.get a:hover { background: #fff3f1; }
+.get span { border: 2px solid rgba(255,255,255,.7); color: #fff; }
+.get small { font-weight: 400; font-size: .85rem; opacity: .9; }
+
+/* The red clock: a full disc whose edge sweeps back toward 12 as the tomato runs out */
+.clock { justify-self: center; width: min(22rem, 78vw); display: grid; justify-items: center; gap: 1rem; }
+.disc {
+  position: relative; width: 100%; aspect-ratio: 1; border-radius: 50%; background: #fff;
+  box-shadow: 0 0 0 10px rgba(255,255,255,.18);
+}
+.disc::before {
+  content: ""; position: absolute; inset: 7%; border-radius: 50%;
+  background: conic-gradient(var(--tomato-deep) calc(var(--left, 1) * 360deg), #fff 0);
+}
+.time { font: 400 2rem "Young Serif", Georgia, serif; font-variant-numeric: tabular-nums; }
+
+/* Below the red */
+section { padding: 4.5rem 0 0; }
+h2 { font: 400 clamp(1.9rem, 4vw, 2.6rem)/1.15 "Young Serif", Georgia, serif; margin: 0 0 .75rem; }
+.sub { color: var(--muted); max-width: 40rem; margin: 0; }
+
+.tiers { display: grid; grid-template-columns: repeat(4, 1fr); gap: 1.5rem; margin: 2.5rem 0 0; padding: 0; list-style: none; }
+.tiers li { text-align: center; }
+.tiers svg { width: 88px; height: 88px; display: block; margin: 0 auto .5rem; }
+.tiers b { display: block; font: 400 1.2rem "Young Serif", Georgia, serif; }
+.tiers span { color: var(--muted); }
+
+.points { display: grid; grid-template-columns: repeat(3, 1fr); gap: 2.5rem; margin-top: 2.5rem; }
+.points h3 { font: 700 1.15rem/1.3 "Atkinson Hyperlegible", sans-serif; margin: 0 0 .4rem; }
+.points p { margin: 0; color: var(--muted); }
+
+footer { margin-top: 5rem; padding: 2rem 0 3rem; border-top: 1px solid var(--line); color: var(--muted); font-size: .95rem; }
+footer .wrap { display: flex; flex-wrap: wrap; gap: 1.5rem; justify-content: space-between; }
+footer nav { display: flex; gap: 1.25rem; }
+
+@media (max-width: 760px) {
+  .wrap { padding: 0 1rem; }
+  .hero { padding-bottom: 3.5rem; }
+  .hero-grid { grid-template-columns: 1fr; margin-top: 2rem; gap: 2rem; }
+  .clock { order: -1; width: min(13rem, 56vw); gap: .5rem; }
+  .time { font-size: 1.6rem; }
+  .get a, .get span { flex: 1 1 100%; }
+  .tiers { grid-template-columns: repeat(2, 1fr); }
+  .points { grid-template-columns: 1fr; gap: 1.75rem; }
+}
+</style>
+</head>
+<body>
+<header class="hero">
+  <div class="wrap">
+    <a class="brand" href="./"><img src="tomato.png" alt="" width="34" height="35">Tomatime</a>
+    <div class="hero-grid">
+      <div>
+        <h1>Focus together.</h1>
+        <p class="lede">A tomato timer for studying with other people. Start a tomato at the same second as your study group, take the break together, and see who's still going.</p>
+        <div class="get">
+          <a href="https://apps.apple.com/app/id6832374095">Get it on the App Store<small>iPhone and Apple Watch</small></a>
+          <span aria-disabled="true">Mac<small>Coming soon</small></span>
+          <span aria-disabled="true">Windows<small>Coming soon, for joining a group</small></span>
+        </div>
+      </div>
+      <div class="clock" role="img" aria-label="A red clock counting down a 25-minute tomato">
+        <div class="disc"></div>
+        <div class="time" aria-hidden="true">25:00</div>
+      </div>
+    </div>
+  </div>
+</header>
+
+<main class="wrap">
+  <section>
+    <h2>Pick a tomato</h2>
+    <p class="sub">A focus session never runs past an hour. When it ends, a red screen covers every display, so you actually take the break.</p>
+    <ul class="tiers">
+      <li><svg viewBox="0 0 100 100" aria-hidden="true"><use href="#t" fill="var(--green)"/></svg><b>Green</b><span>20 minutes</span></li>
+      <li><svg viewBox="0 0 100 100" aria-hidden="true"><use href="#t" fill="var(--tomato)"/></svg><b>Red</b><span>25 minutes</span></li>
+      <li><svg viewBox="0 0 100 100" aria-hidden="true"><use href="#t" fill="var(--gold)"/></svg><b>Golden</b><span>45 minutes</span></li>
+      <li><svg viewBox="0 0 100 100" aria-hidden="true"><use href="#t" fill="var(--diamond)"/></svg><b>Diamond</b><span>60 minutes</span></li>
+    </ul>
+  </section>
+
+  <section>
+    <h2>Made for studying with people</h2>
+    <div class="points">
+      <div>
+        <h3>Your group, live</h3>
+        <p>Make a group for your study partner or your class and send the invite code. See who's focusing, who's on a break, and how many minutes everyone did today.</p>
+      </div>
+      <div>
+        <h3>Start at the same second</h3>
+        <p>Start a group tomato and everyone gets a 10-second countdown. Join, focus together, then take the 10-minute group break together.</p>
+      </div>
+      <div>
+        <h3>One timer on every device</h3>
+        <p>Start on your Mac, pause on your Apple Watch, check your iPhone's Lock Screen. They all follow the same timer.</p>
+      </div>
+    </div>
+  </section>
+</main>
+
+<footer>
+  <div class="wrap">
+    <span>Free. No ads. No tracking.</span>
+    <nav>
+      <a href="https://sgjlee0520.github.io/app-privacy/tomatime/">Privacy</a>
+      <a href="https://github.com/sgjlee0520/tomatime">Source on GitHub</a>
+    </nav>
+  </div>
+</footer>
+
+<!-- One tomato, filled with each tier's color -->
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <symbol id="t" viewBox="0 0 100 100">
+    <path d="M50 24c22 0 40 13 40 35 0 21-17 35-40 35S10 80 10 59c0-22 18-35 40-35z" stroke="#1b1b1b" stroke-width="3" stroke-linejoin="round"/>
+    <path d="M50 30l6-14 2 13 14-4-11 10 12 7-15-1-4 13-4-13-15 1 12-7-11-10 14 4z" fill="#2f7a3a" stroke="#1b1b1b" stroke-width="2.5" stroke-linejoin="round"/>
+  </symbol>
+</svg>
+
+<script>
+// The hero clock counts down a real 25-minute tomato from when the page opens (still with Reduce Motion).
+(() => {
+  const total = 25 * 60, start = Date.now();
+  const clock = document.querySelector('.clock'), time = clock.querySelector('.time');
+  const show = (left) => {
+    clock.style.setProperty('--left', left / total);
+    time.textContent = `${Math.floor(left / 60)}:${String(Math.floor(left % 60)).padStart(2, '0')}`;
+  };
+  if (matchMedia('(prefers-reduced-motion: reduce)').matches) return show(18 * 60 + 42);
+  const tick = () => show(Math.max(0, total - (Date.now() - start) / 1000));
+  tick(); setInterval(tick, 1000);
+})();
+</script>
+</body>
+</html>
