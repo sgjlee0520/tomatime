@@ -16,7 +16,11 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: 22
+          node-version: 24   # the Firebase packages ask for 24.12 or newer
+      - uses: actions/setup-java@v4   # the Firebase emulators need Java 21 or newer
+        with:
+          distribution: temurin
+          java-version: 21
       - name: Rules
         working-directory: windows
         run: npm ci --no-audit --no-fund && npm test
