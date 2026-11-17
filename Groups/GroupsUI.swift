@@ -38,6 +38,20 @@ extension App {
         guard let me = store.uid else { return }
         for g in store.groups {
             guard let s = store.sessions[g.id] else { continue }
+            let phase = sessionPhase(s, now: Date())
+            if phase != .over, let fix = roundFix(s) {  // an older Tomatime moved the group on with the old tomato
+                store.setTomato(g.id, sid: s.id, tierName: fix.name, minutes: fix.minutes, next: false)
+            }
+            // Someone in it changed its length. (No `end`: mine had just run out, the red screen is up; on it goes.)
+            if group.gid == g.id, group.sid == s.id, !onBreak, case .running(let left) = phase,
+               end.map({ abs($0.timeIntervalSince(s.startAt + s.minutes * 60)) > 1 }) ?? (left > 2) {
+                countFocus()
+                closeOverlay()
+                focused = max(1, focused + ((left - (end?.timeIntervalSinceNow ?? 0)) / 60).rounded())
+                group.tier = tomatoTier(s.tierName, s.minutes)
+                NSSound(named: "Tink")?.play()
+                run(left)
+            }
             if let shown = group.showing, shown.gid == g.id {
                 if shown.sid != s.id || s.cancelled || otherMacHasIt(s, me: me, device: deviceKey) {
                     closeCountdown()
@@ -46,7 +60,7 @@ extension App {
                     countdown?.setJoinedNames(names, waiting: waiting)
                 }
             }
-            guard case .countdown = sessionPhase(s, now: Date()), group.seen.insert(s.id).inserted, !countdownUp,
+            guard case .countdown = phase, group.seen.insert(s.id).inserted, !countdownUp,
                   let mode = countdownMode(s, me: me, device: deviceKey, autoJoin: autoJoins(g.id), idleSeconds: idleSeconds())
             else { continue }
             showCountdown(g, s, mode)
@@ -62,10 +76,12 @@ extension App {
 
     func showCountdown(_ g: TomatoGroup, _ s: GroupSession, _ mode: CountdownMode) {
         let who = s.startedBy == store.uid ? "You" : s.starterName
-        let what = "\(s.tierName) tomato · \(Int(s.minutes)) min"
+        let what = tomatoText(s.tierName, s.minutes), n = examTomatoes(s.plan).count
+        let title = s.round > max(n, 1) || s.plan.isEmpty ? (s.round == 1 ? "\(who) started a 🍅 \(what)" : "next group 🍅 \(what)")
+            : s.round == 1 ? "\(who) started Exam mode · \(examText(s.plan))" : "Exam mode \(s.round) of \(n) · 🍅 \(what)"
         countdown?.close()
         group.showing = (g.id, s.id)
-        countdown = Countdown(title: s.round == 1 ? "\(g.name): \(who) started a 🍅 \(what)" : "\(g.name): next group 🍅 \(what)",
+        countdown = Countdown(title: "\(g.name): \(title)",
                               mode: mode, startAt: s.startAt,
                               note: s.round > 1 && s.joined.contains(store.uid ?? "") ? "You picked the group break" : "Auto-join is on",
                               onJoin: { [weak self] in self?.joinRound(g.id, s.id) },
@@ -125,8 +141,8 @@ extension App {
         closeOverlay()
         group.gid = gid
         group.sid = s.id
-        group.tier = Tier(name: s.tierName, minutes: s.minutes,
-                          color: tiers.first { $0.name == s.tierName }?.color ?? tiers.last { $0.minutes <= s.minutes }?.color ?? tiers[0].color)
+        group.tier = tomatoTier(s.tierName, s.minutes)
+        exam = nil
         group.advanceTimer?.invalidate()
         onBreak = false
         autoNext = false
@@ -135,16 +151,19 @@ extension App {
     }
 
     // Red screen after a group tomato: 10-minute break that ends as the next group tomato starts.
-    @objc func groupBreak() {
+    // One of the four small buttons under it (tag = which tomato): the same, and the next one is that tomato.
+    @objc func groupBreak(_ sender: NSButton) {
         guard let gid = group.gid, let s = store.sessions[gid], s.id == group.sid, joinNextRound(gid, s)
         else { return startBreak(groupBreakMinutes) }  // missed it
+        if tiers.indices.contains(sender.tag) {
+            store.setTomato(gid, sid: s.id, tierName: tiers[sender.tag].name, minutes: tiers[sender.tag].minutes, next: true)
+        }
     }
 
     // Opt in to the round after `s`: a break that ends as it starts. False when it's under 10 s away.
     // From the red screen, or from the menu while the others are on their group break.
     @discardableResult func joinNextRound(_ gid: String, _ s: GroupSession) -> Bool {
-        let start = nextRoundStart(after: s.startAt + s.minutes * 60)
-        guard start.timeIntervalSinceNow > Double(countdownSeconds) else { return false }
+        guard let start = nextRoundStart(s), start.timeIntervalSinceNow > Double(countdownSeconds) else { return false }
         store.setNextJoined(gid, sid: s.id, joined: true)
         countFocus()
         group.gid = gid
@@ -152,6 +171,8 @@ extension App {
         closeOverlay()
         onBreak = true
         autoNext = false
+        exam = nil
+        breakMinutes = breakAfter(s) ?? groupBreakMinutes
         run(start.timeIntervalSinceNow)
         group.advanceTimer?.invalidate()  // whoever is first moves everyone opted in to the next round
         group.advanceTimer = after(start - Double(countdownSeconds)) { [weak self] in
@@ -174,6 +195,7 @@ extension App {
 
     @objc func resetTapped() {
         leaveGroupTomato()
+        exam = nil
         reset()
     }
 
@@ -264,21 +286,59 @@ extension App {
         let here = s.map { group.joining == $0.id || group.sid == $0.id } ?? false
         let join = { (title: String) in self.groupItem(title, #selector(self.joinGroupTapped), g.id) }
         switch sessionMenu(s, me: store.uid ?? "", device: deviceKey, here: here, now: now) {
-        case .start: return groupItem("Start group tomato · \(Int(tier.minutes)) min", #selector(startGroupTapped), g.id)
+        case .start:  // any tomato a solo session can be: the four, or a typed length; or Exam mode
+            let start = tomatoChoices("Start group tomato", #selector(startGroupTapped), g.id)
+            start.submenu?.addItem(.separator())
+            start.submenu?.addItem(groupItem("Exam mode · \(examText(examPlan))", #selector(startGroupExamTapped), g.id))
+            return start
         case .starting: return info("Group tomato starting…")
         case .joinCountdown: return join("Group tomato starting — Join")
-        case .inIt(let m): return info("In this group tomato · \(m) min left")
+        case .inIt(let m):  // anyone in it can change its length (not an Exam mode's: the plan sets those)
+            guard let s, s.plan.isEmpty else { return info("In this group tomato · \(m) min left\(examNote(s))") }
+            return tomatoChoices("In this group tomato · \(m) min left", #selector(changeGroupTapped), g.id,
+                                 header: "Change its length, for everyone in it:")
         case .otherMac(let m): return info("In this group tomato on your other Mac · \(m) min left")
         case .joinRunning(let m): return join("Group tomato in progress — Join (\(m) min left)")
-        case .onBreak(let m): return info("Group break · next group tomato in \(m) min")
+        case .onBreak(let m):  // …or pick another tomato for the next round
+            guard let s, s.plan.isEmpty else { return info("Group break · next group tomato in \(m) min\(examNote(s))") }
+            let next = nextTomato(s)
+            return tomatoChoices("Group break · next: \(tomatoText(next.name, next.minutes)) in \(m) min", #selector(changeGroupTapped),
+                                 g.id, header: "Change the next group tomato:")
         case .joinBreak(let m): return join("Group break · next group tomato in \(m) min — Join")
         }
+    }
+
+    // A line with the four tomatoes and Custom tomato… under it; each carries [group, name, minutes] ([group]: Custom).
+    func tomatoChoices(_ title: String, _ action: Selector, _ gid: String, header: String? = nil) -> NSMenuItem {
+        let line = NSMenuItem(title: title, action: nil, keyEquivalent: "")
+        line.submenu = NSMenu()
+        if let header { line.submenu?.addItem(info(header)) }
+        for t in tiers {
+            let mi = groupItem("\(t.name) tomato · \(Int(t.minutes)) min", action, [gid, t.name, t.minutes] as [Any])
+            mi.image = tomato(t.color, size: 16)
+            line.submenu?.addItem(mi)
+        }
+        let typed = groupItem("Custom tomato…", action, [gid] as [Any])
+        typed.image = tomato(.systemGray, size: 16)
+        line.submenu?.addItem(typed)
+        return line
+    }
+
+    func tomatoText(_ name: String, _ minutes: Double) -> String {
+        name.hasSuffix("-min") ? "\(Int(minutes)) min tomato" : "\(name) tomato · \(Int(minutes)) min"
+    }
+
+    // " · Exam mode 2 of 4" for a group's Exam mode; on its break, the tomato that's next.
+    func examNote(_ s: GroupSession?) -> String {
+        guard let s, !s.plan.isEmpty else { return "" }
+        let k = s.round + (sessionPhase(s, now: Date()) == .over ? 1 : 0), n = examTomatoes(s.plan).count
+        return k <= n ? " · Exam mode \(k) of \(n)" : ""
     }
 
     func groupsItem() -> NSMenuItem {
         let mi = NSMenuItem(title: "Groups", action: nil, keyEquivalent: "")
         let sub = NSMenu()
-        if !store.signedIn { sub.addItem(groupItem("Sign in with Apple…", #selector(signInTapped))) }
+        if !store.signedIn, !codeSignIn { sub.addItem(groupItem("Sign in with Apple…", #selector(signInTapped))) }
         sub.addItem(groupItem("New Group…", #selector(newGroupTapped)))
         sub.addItem(groupItem("Join with Code…", #selector(joinCodeTapped)))
         if store.signedIn { sub.addItem(groupItem(store.myName.map { "Change My Name (\($0))…" } ?? "Set My Name…", #selector(changeNameTapped))) }
@@ -315,10 +375,37 @@ extension App {
 
     // MARK: Menu actions
 
+    // [group, tomato name, minutes] from the submenu; just [group] is Custom tomato…, which asks the minutes.
     @objc func startGroupTapped(_ sender: NSMenuItem) {
+        guard let (gid, name, minutes) = pickedTomato(sender, button: "Start") else { return }
+        groupTask { try await self.store.startSession(gid, tierName: name, minutes: minutes) }
+    }
+
+    func pickedTomato(_ sender: NSMenuItem, button: String) -> (gid: String, name: String, minutes: Double)? {
+        guard let o = sender.representedObject as? [Any], let gid = o.first as? String else { return nil }
+        if o.count == 3, let name = o[1] as? String, let minutes = o[2] as? Double { return (gid, name, minutes) }
+        return askMinutes("Custom group tomato", button: button).map { (gid, "\($0)-min", Double($0)) }
+    }
+
+    // Exam mode for the group: this Mac's plan, tomatoes and breaks back to back for everyone who joins.
+    @objc func startGroupExamTapped(_ sender: NSMenuItem) {
         guard let gid = sender.representedObject as? String else { return }
-        let t = tier
-        groupTask { try await self.store.startSession(gid, tierName: t.name, minutes: t.minutes) }
+        let plan = examPlan
+        groupTask { try await self.store.startSession(gid, tierName: tomatoName(plan[0]), minutes: plan[0], plan: plan) }
+    }
+
+    // While the group tomato runs: its length, for everyone in it. On the group break: the next round's tomato.
+    @objc func changeGroupTapped(_ sender: NSMenuItem) {
+        guard let (gid, name, minutes) = pickedTomato(sender, button: "Change"), let s = store.sessions[gid] else { return }
+        switch sessionPhase(s, now: Date()) {
+        case .running:
+            guard canResize(s, to: minutes, now: Date()) else {
+                return tell("Can't change it to that now.", "The new length has to leave at least a minute, and not in this tomato's last 10 seconds. You can pick the next one on the red screen.")
+            }
+            store.setTomato(gid, sid: s.id, tierName: name, minutes: minutes, next: false)
+        case .over: store.setTomato(gid, sid: s.id, tierName: name, minutes: minutes, next: true)
+        case .countdown: break
+        }
     }
 
     // Arrived late, or skipped the countdown and changed your mind.
@@ -397,10 +484,12 @@ extension App {
         else { return }
         leaveGroupTomato()
         groupTask {
+            if codeSignIn { try await self.store.deleteAccount(anchor: NSWindow()) } else {
             try await SignInPrompt.run("Delete your Groups account", """
                 Confirm with Apple. Tomatime then leaves your groups, deletes your name and account, \
                 and stops using your Sign in with Apple.
                 """, button: .continue) { try await self.store.deleteAccount(anchor: $0) }
+            }
             self.tell("Your Groups account is deleted.")
         }
     }
@@ -444,7 +533,9 @@ extension App {
 
     // Signed in, with a display name.
     func readyForGroups() async throws {
-        if !store.signedIn {
+        if !store.signedIn, codeSignIn {
+            try await store.signIn(anchor: NSWindow())  // no Apple: the invite code and a name are enough
+        } else if !store.signedIn {
             try await SignInPrompt.run("Focus together", """
                 Groups of up to \(maxGroupSize) people see who's focusing, start tomatoes at the same second, \
                 and compare minutes.

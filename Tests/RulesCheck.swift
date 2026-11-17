@@ -61,6 +61,14 @@ func group(_ members: [Member], unlocked: Bool = true) -> TomatoGroup {
         let onBreak = MemberStatus(state: .rest, tierName: "", minutes: 10, endsAt: t0 + 4 * 60, sessionID: nil)
         check(statusText(mk("x", onBreak), now: t0) == "break · 4 min", "break text")
         check(statusText(mk("x", seconds: ["d": [dayKey(t0): 2700]]), now: t0) == "45 min today", "idle text")
+        // A finished 25-minute tomato tallies a few ms under 1500 s (2026-11-15: a member showed "24 min today").
+        check(statusText(mk("x", seconds: ["d": [dayKey(t0): 1499.995]]), now: t0) == "25 min today", "finished 25 → 25")
+        // One rule everywhere: whole minutes done, forgiving half a second. A person's line, the day square and the
+        // ranking agree, and the people of a day add up to its square.
+        check(wholeMinutes(1499.995) == 25 && wholeMinutes(1499.4) == 24 && wholeMinutes(2850.2) == 47, "whole minutes")
+        let half = group([mk("p", seconds: ["a": [dayKey(t0): 1499.995]]), mk("q", seconds: ["b": [dayKey(t0): 1530]])])
+        check(groupDayMinutes(half, days: [t0]) == [50], "day square = its people (25 + 25)")
+        check(weeklyRanking(half, now: t0, calendar: Calendar.current).map(\.minutes) == [25, 25], "ranking uses the same rule")
 
         // memberSeconds
         let both = mk("x", joined: t0, seconds: ["a": [dayKey(t0): 600], "b": [dayKey(t0): 300]])
@@ -71,6 +79,9 @@ func group(_ members: [Member], unlocked: Bool = true) -> TomatoGroup {
         // groupDayMinutes
         let dm = group([mk("p", seconds: ["a": [dayKey(t0): 1500]]), mk("q", seconds: ["b": [dayKey(t0): 1200]])])
         check(groupDayMinutes(dm, days: [t0 - 86400, t0]) == [0, 45], "group minutes per day")
+        // dayRanking: one day's people, most first, ties alphabetical; a day without tomatoes is all zeros
+        check(dayRanking(dm, day: t0).map { "\($0.name) \($0.minutes)" } == ["p 25", "q 20"], "a day's people")
+        check(dayRanking(dm, day: t0 - 86400).map { "\($0.name) \($0.minutes)" } == ["p 0", "q 0"], "an empty day")
 
         // weeklyRanking: this week only, sorted, ties alphabetical
         var cal = Calendar.current
@@ -100,7 +111,7 @@ func group(_ members: [Member], unlocked: Bool = true) -> TomatoGroup {
         check(sessionPhase(sess(startAt: t0 + 5, cancelled: true), now: t0) == .over, "cancelled → over")
 
         // nextRoundStart, shouldAutoJoin
-        check(nextRoundStart(after: t0) == t0 + 600, "next round 10 min later")
+        check(nextRoundStart(sess(startAt: t0 - 25 * 60)) == t0 + 600, "next round 10 min after the tomato ends")
         check(shouldAutoJoin(idleSeconds: 30), "active Mac auto-joins")
         check(!shouldAutoJoin(idleSeconds: 150), "idle Mac does not")
 
@@ -180,6 +191,45 @@ func group(_ members: [Member], unlocked: Bool = true) -> TomatoGroup {
         check(sessionMenu(groupBreak, me: "a", device: "macA", here: true, now: t0) == .onBreak(8), "menu: on the group break")
         check(sessionMenu(groupBreak, me: "b", device: "macB", here: false, now: t0 + 475) == .starting, "menu: next round about to start")
         check(sessionMenu(gs(startAt: t0 - 30 * 60), me: "b", device: "macB", here: false, now: t0) == .start, "menu: over")
+
+        // The next group tomato can be another length: picked during the group break, or from an Exam mode plan
+        var picked = groupBreak
+        check(nextTomato(picked) == ("Red", 25), "next round: the same tomato again")
+        picked.nextTierName = "Golden"; picked.nextMinutes = 45; picked.nextRound = 2
+        check(nextTomato(picked) == ("Golden", 45) && roundFix(picked) == nil, "next round: what someone picked")
+        picked.round = 2  // an older Tomatime moved the group on and kept Red 25
+        check(roundFix(picked)! == ("Golden", 45), "an old app's round is put right")
+        picked.nextRound = 3  // picked a moment early, while round 2 still runs for the others: round 2 stays as it is
+        check(roundFix(picked) == nil && nextTomato(picked) == ("Golden", 45), "a pick is for its own round only")
+        picked.round = 4
+        check(roundFix(picked) == nil && nextTomato(picked) == ("Red", 25), "a stale pick counts for nothing")
+        let read = session(data: ["id": "r", "startedBy": "a", "createdAt": t0, "nextMinutes": 50, "nextRound": 2, "plan": [25, 8, 45]])
+        check(read?.nextMinutes == 50 && read?.nextRound == 2 && read?.nextTierName == nil && read?.plan == [25, 8, 45], "pick and plan are read")
+        check(nextTomato(GroupSession(id: "s", round: 1, startedBy: "a", starterName: "A", tierName: "Red", minutes: 25, startAt: t0,
+                                      cancelled: false, joined: [], nextJoined: [], devices: [:], nextMinutes: 50, nextRound: 2)) == ("50-min", 50),
+              "a typed length gets its name")
+        check(canResize(running, to: 45, now: t0) && !canResize(running, to: 7.5, now: t0) && !canResize(groupBreak, to: 45, now: t0),
+              "a running group tomato can change length, but not to one that's already over")
+        check(!canResize(gs(startAt: t0 - 25 * 60 + 8), to: 45, now: t0), "not in its last 10 seconds")
+
+        // Exam mode: tomatoes and breaks from a plan, then no next round
+        func exam(round: Int, minutes: Double, startAt: Date = t0) -> GroupSession {
+            GroupSession(id: "s", round: round, startedBy: "a", starterName: "A", tierName: tomatoName(minutes), minutes: minutes,
+                         startAt: startAt, cancelled: false, joined: ["a"], nextJoined: ["a"], devices: [:], plan: [25, 8, 45, 10, 60])
+        }
+        check(breakAfter(exam(round: 1, minutes: 25)) == 8 && nextRoundStart(exam(round: 1, minutes: 25)) == t0 + 33 * 60, "exam: 8 min break after the first")
+        check(nextTomato(exam(round: 1, minutes: 25)) == ("Golden", 45) && nextTomato(exam(round: 2, minutes: 45)) == ("Diamond", 60), "exam: the plan's next tomato")
+        check(breakAfter(exam(round: 3, minutes: 60)) == nil && nextRoundStart(exam(round: 3, minutes: 60)) == nil, "exam: nothing after the last tomato")
+        check(canStartSession(exam(round: 3, minutes: 60, startAt: t0 - 61 * 60), now: t0), "exam over: a new group tomato can start")
+        check(sessionMenu(exam(round: 3, minutes: 60, startAt: t0 - 61 * 60), me: "a", device: "macA", here: true, now: t0) == .start, "menu: exam over")
+        check(sessionMenu(exam(round: 1, minutes: 25, startAt: t0 - 27 * 60), me: "a", device: "macA", here: true, now: t0) == .onBreak(6), "menu: exam break is 8 min")
+        check(roundFix(exam(round: 2, minutes: 25))! == ("Golden", 45) && roundFix(exam(round: 2, minutes: 45)) == nil, "exam: an old app's round is put right")
+        check(!canResize(exam(round: 1, minutes: 25, startAt: t0 - 60), to: 45, now: t0), "exam: the plan sets the lengths")
+        check(parseExamPlan("25, 8, 45,10,45 10 60")! == [25, 8, 45, 10, 45, 10, 60] && parseExamPlan(" 50 10 50 ")! == [50, 10, 50], "exam plan typed")
+        check(parseExamPlan("25, 8") == nil && parseExamPlan("25") == nil && parseExamPlan("25, 0, 45") == nil
+              && parseExamPlan("25, 8, 500") == nil && parseExamPlan("") == nil, "exam plan: starts and ends with a tomato, 1 to 480")
+        check(examText(recommendedExamPlan) == examTomatoes(recommendedExamPlan).map { "\(Int($0))" }.joined(separator: " → ") + " min"
+              && parseExamPlan(recommendedExamPlan.map { "\(Int($0))" }.joined(separator: ", "))! == recommendedExamPlan, "the recommended plan is a valid plan")
 
         // Day keys are Gregorian whatever this Mac's calendar (tools/test.sh reruns this with a Thai Buddhist calendar)
         var gregorian = Calendar(identifier: .gregorian)

@@ -11,7 +11,20 @@ let tiers = [
     Tier(name: "Golden", minutes: 45, color: NSColor(srgbRed: 1.00, green: 0.76, blue: 0.10, alpha: 1)),
     Tier(name: "Diamond", minutes: 60, color: NSColor(srgbRed: 0.55, green: 0.88, blue: 1.00, alpha: 1)),
 ]
-let maxFocusMinutes = 60.0
+// The four tomatoes stop at an hour; a typed length (solo or group) and "1 more minute" may go up to 8 hours,
+// which is also as long as an iPhone Live Activity can stay up.
+let maxFocusMinutes = 480.0
+
+// A tomato of any length: a typed one takes the color of the biggest of the four it reaches (30 min = red, 50 = golden).
+func tomatoTier(_ name: String, _ minutes: Double) -> Tier {
+    Tier(name: name, minutes: minutes,
+         color: tiers.first { $0.name == name }?.color ?? tiers.last { $0.minutes <= minutes }?.color ?? tiers[0].color)
+}
+
+// Solo Exam mode on this Mac: which tomato of the plan is on (GroupRules: the plan; a group's is its session's).
+struct ExamRun { var plan: [Double]; var block = 0 }
+// The red screen during Exam mode: its break has already started, or it's all done. Nothing to choose.
+typealias ExamScreen = (title: String, sub: String, ok: String, okAction: Selector, leave: String?)
 let unit: Double = CommandLine.arguments.contains("--fast") ? 1 : 60  // seconds per "minute"
 
 // Tomato minutes: focus seconds per local day, e.g. ["2026-11-8": 4500]. --fast and --emulator keep a separate tally.
@@ -42,7 +55,7 @@ func tally() -> [String: Double] {
 
 func pushToCloud() { if syncs { cloud.set(localTally(), forKey: deviceKey) } }
 
-func mins(_ secs: Double?) -> Int { Int(((secs ?? 0) + 0.5) / 60) }
+func mins(_ secs: Double?) -> Int { wholeMinutes(secs ?? 0) }
 
 func todayText() -> String {
     let m = mins(tally()[dayKey()])
@@ -66,6 +79,7 @@ final class CalendarView: NSView {
     var me: String?
     var groupID: String?  // nil = Me
     var group: TomatoGroup? { groups.first { $0.id == groupID } }
+    var picked: Date?  // a day clicked on a group tab: its people show below instead of this week's ranking
     var y0: CGFloat { tabs.isHidden ? pad : pad + 36 }  // where the month title starts
     override var isFlipped: Bool { true }
 
@@ -90,6 +104,7 @@ final class CalendarView: NSView {
 
     @objc func shift(_ b: NSButton) {
         month = cal.date(byAdding: .month, value: b.tag, to: month)!
+        picked = nil
         needsDisplay = true
     }
 
@@ -112,13 +127,14 @@ final class CalendarView: NSView {
 
     @objc func pickTab() {
         groupID = tabs.selectedSegment == 0 ? nil : groups[tabs.selectedSegment - 1].id
+        picked = nil
         fit()
         needsDisplay = true
     }
 
     // The month, plus the ranking rows on a group tab. The window keeps its top edge.
     func fit() {
-        let h = y0 + 500 + (group.map { 40 + CGFloat($0.members.count) * 22 } ?? 0)
+        let h = y0 + 500 + (group.map { 60 + CGFloat($0.members.count) * 22 } ?? 0)
         guard h != frame.height else { return }
         setFrameSize(NSSize(width: frame.width, height: h))
         guard let w = window else { return }
@@ -135,9 +151,29 @@ final class CalendarView: NSView {
         (s as NSString).draw(at: NSPoint(x: p.x - dx, y: p.y), withAttributes: a)
     }
 
+    // The days of the month shown, and each one's square.
+    func squares() -> [(day: Date, rect: NSRect)] {
+        let first = cal.dateInterval(of: .month, for: month)!.start
+        let offset = (cal.component(.weekday, from: first) - cal.firstWeekday + 7) % 7
+        return cal.range(of: .day, in: .month, for: first)!.map { d in
+            let slot = offset + d - 1
+            return (cal.date(byAdding: .day, value: d - 1, to: first)!,
+                    NSRect(x: pad + CGFloat(slot % 7) * (cell.width + gap), y: y0 + 84 + CGFloat(slot / 7) * (cell.height + gap),
+                           width: cell.width, height: cell.height))
+        }
+    }
+
+    // Group tab: click a day for each person's time that day; click it again for this week's ranking.
+    override func mouseDown(with e: NSEvent) {
+        let p = convert(e.locationInWindow, from: nil)
+        guard group != nil, let day = squares().first(where: { $0.rect.contains(p) })?.day else { return }
+        picked = picked == day ? nil : day
+        needsDisplay = true
+    }
+
     override func draw(_: NSRect) {
         let first = cal.dateInterval(of: .month, for: month)!.start
-        let days = cal.range(of: .day, in: .month, for: first)!.map { cal.date(byAdding: .day, value: $0 - 1, to: first)! }
+        let all = squares(), days = all.map(\.day)
         let g = group
         let minutes: [Int]
         if let g {
@@ -158,18 +194,14 @@ final class CalendarView: NSView {
             let symbol = cal.shortWeekdaySymbols[(col + cal.firstWeekday - 1) % 7]
             text(symbol, NSPoint(x: pad + CGFloat(col) * stride + cell.width / 2, y: top), 11, .secondaryLabelColor)
         }
-        let offset = (cal.component(.weekday, from: first) - cal.firstWeekday + 7) % 7
-        for (i, day) in days.enumerated() {
-            let slot = offset + i
-            let r = NSRect(x: pad + CGFloat(slot % 7) * stride, y: top + 20 + CGFloat(slot / 7) * (cell.height + gap),
-                           width: cell.width, height: cell.height)
+        for (i, (day, r)) in all.enumerated() {
             let box = NSBezierPath(roundedRect: r, xRadius: 6, yRadius: 6)
             let level = Self.steps.lastIndex { minutes[i] >= $0.from }!
             (level == 0 ? NSColor.quaternaryLabelColor : NSColor.systemRed.withAlphaComponent(Self.alphas[level])).setFill()
             box.fill()
-            if cal.isDateInToday(day) {
-                NSColor.labelColor.setStroke()
-                box.lineWidth = 2
+            if cal.isDateInToday(day) || day == picked {
+                (day == picked ? NSColor.controlAccentColor : .labelColor).setStroke()
+                box.lineWidth = day == picked ? 3 : 2
                 box.stroke()
             }
             text("\(i + 1)", NSPoint(x: r.minX + 6, y: r.minY + 4), 11, level >= 3 ? .white : .secondaryLabelColor, centered: false)
@@ -189,12 +221,16 @@ final class CalendarView: NSView {
         }
 
         // Group tab: this week's ranking (week start per this Mac's settings), "You" for me.
-        var ranked: [String] = []
+        var ranked: [String] = [], section = ""
         if var g {
             g.members = g.members.map { var m = $0; if m.uid == me { m.name = "You" }; return m }
             let ry = ly + 62
-            text("This week", NSPoint(x: bounds.midX, y: ry), 13, weight: .semibold)
-            for (i, row) in weeklyRanking(g, now: Date(), calendar: cal).enumerated() {
+            let rows = picked.map { dayRanking(g, day: $0) } ?? weeklyRanking(g, now: Date(), calendar: cal)
+            section = picked?.formatted(.dateTime.weekday(.wide).month(.wide).day()) ?? "This week"
+            text(section, NSPoint(x: bounds.midX, y: ry), 13, weight: .semibold)
+            text(picked == nil ? "Click a day to see each person's time" : "Click the day again for this week",
+                 NSPoint(x: bounds.midX, y: ry + 28 + CGFloat(rows.count) * 22), 11, .secondaryLabelColor)
+            for (i, row) in rows.enumerated() {
                 let y = ry + 24 + CGFloat(i) * 22
                 let place = i < 3 ? ["🥇", "🥈", "🥉"][i] : "\(i + 1)."
                 text("\(place)  \(row.name)", NSPoint(x: bounds.midX - 120, y: y), 13, centered: false)
@@ -206,7 +242,7 @@ final class CalendarView: NSView {
         let busy = zip(days, minutes).filter { $0.1 > 0 }.map { "\(cal.component(.day, from: $0.0)): \(hm($0.1))" }
         setAccessibilityLabel("\(g.map { "\($0.name), " } ?? "")\(title), \(total). "
             + (busy.isEmpty ? "No tomato minutes yet." : busy.joined(separator: ", "))
-            + (ranked.isEmpty ? "" : ". This week: " + ranked.joined(separator: ", ")))
+            + (ranked.isEmpty ? "" : ". \(section): " + ranked.joined(separator: ", ")))
     }
 }
 
@@ -240,7 +276,12 @@ final class OverlayWindow: NSPanel {
     let customItem = NSMenuItem(title: "Custom tomato…", action: #selector(customTomato), keyEquivalent: "")
     var tierIndex = min(UserDefaults.standard.object(forKey: "tier") as? Int ?? 1, tiers.count - 1)
     var custom: Tier?  // typed-in length; picking a tier clears it
-    var tier: Tier { group.tier ?? custom ?? tiers[tierIndex] }
+    var exam: ExamRun?
+    let examItem = NSMenuItem(title: "Exam mode", action: nil, keyEquivalent: "")
+    let examStartItem = NSMenuItem(title: "Start", action: #selector(examTapped), keyEquivalent: "")
+    var tier: Tier {
+        group.tier ?? exam.map { tomatoTier(tomatoName($0.plan[2 * $0.block]), $0.plan[2 * $0.block]) } ?? custom ?? tiers[tierIndex]
+    }
     var onBreak = false
     var autoNext = false  // start the next focus session when this break ends
     var focused = 0.0   // minutes in this focus session, "1 more minute"s included
@@ -263,6 +304,10 @@ final class OverlayWindow: NSPanel {
         if CommandLine.arguments.contains("--smoke") {  // firebase/tools/smoke.sh
             Task { exit(await GroupStore.shared.smoke()) }
             return
+        }
+        if let i = CommandLine.arguments.firstIndex(of: "--overlay-shots"), i + 1 < CommandLine.arguments.count {
+            overlayShots(CommandLine.arguments[i + 1])
+            exit(0)
         }
         if CommandLine.arguments.contains("--rest-demo") {  // the last minute of a break, then quit
             rest = RestCountdown(endAt: Date() + Double(restCountdownSeconds), last: 1)
@@ -299,6 +344,11 @@ final class OverlayWindow: NSPanel {
             menu.addItem(mi)
         }
         menu.addItem(customItem)
+        examItem.submenu = NSMenu()
+        examItem.submenu?.addItem(examStartItem)
+        examItem.submenu?.addItem(NSMenuItem(title: "Change the Plan…", action: #selector(editExam), keyEquivalent: ""))
+        examItem.submenu?.items.forEach { $0.target = self }
+        menu.addItem(examItem)
         menu.addItem(.separator())
         menu.addItem(loginItem)
         menu.items.forEach { $0.target = self }
@@ -404,14 +454,118 @@ final class OverlayWindow: NSPanel {
         if onBreak {
             NSSound(named: "Hero")?.play()
             let next = autoNext
+            exam?.block += 1  // Exam mode: on to its next tomato
+            // A break my other Mac or PC started ends there too, and that one says what's next: an "idle" from
+            // here could land after its next tomato and stop it.
+            applyingRemote = shared.map { $0.by != deviceKey && $0.by.hasPrefix("focus-") } ?? false
             reset()
+            applyingRemote = false
             if next { run(left) }
         } else {
             NSSound(named: "Glass")?.play()
             render()
-            showOverlay()
+            if !examBlockEnded() { showOverlay() }
         }
     }
+
+    // MARK: Exam mode
+
+    var examPlan: [Double] {
+        (UserDefaults.standard.array(forKey: "examPlan") as? [Double]).flatMap { $0.count >= 3 ? $0 : nil } ?? recommendedExamPlan
+    }
+
+    // Start: the plan's tomatoes and breaks, back to back. While it runs: Stop.
+    @objc func examTapped() {
+        if exam != nil { return resetTapped() }
+        leaveGroupTomato()
+        exam = ExamRun(plan: examPlan)
+        reset()
+        run(left)
+    }
+
+    // Type your own plan: tomatoes and breaks in order.
+    @objc func editExam() {
+        let text = { (plan: [Double]) in plan.map { "\(Int($0))" }.joined(separator: ", ") }
+        let field = NSTextField(frame: NSRect(x: 0, y: 0, width: 300, height: 24))
+        field.stringValue = text(examPlan)
+        let alert = NSAlert()
+        alert.messageText = "Exam mode plan"
+        alert.informativeText = "Minutes in order: tomato, break, tomato, break, … ending with a tomato.\nRecommended: \(text(recommendedExamPlan))"
+        alert.accessoryView = field
+        ["Save", "Use Recommended", "Cancel"].forEach { alert.addButton(withTitle: $0) }
+        alert.window.initialFirstResponder = field
+        NSApp.activate()
+        while true {
+            switch alert.runModal() {
+            case .alertFirstButtonReturn:
+                if let plan = parseExamPlan(field.stringValue) {
+                    UserDefaults.standard.set(plan, forKey: "examPlan")
+                    return render()
+                }
+                alert.informativeText = "Type whole minutes from 1 to 480, starting and ending with a tomato, like: 25, 8, 45, 10, 60"
+            case .alertSecondButtonReturn:
+                UserDefaults.standard.removeObject(forKey: "examPlan")
+                return render()
+            default: return
+            }
+        }
+    }
+
+    // A tomato of an Exam mode just ended: its break starts by itself (solo) or with the group, and after the
+    // last one it's done. False: not in Exam mode (the usual red screen).
+    func examBlockEnded() -> Bool {
+        let doneScreen = examDoneScreen()
+        if let gid = group.gid, let s = store.sessions[gid], s.id == group.sid, !s.plan.isEmpty {
+            guard let b = breakAfter(s) else { showOverlay(exam: doneScreen); return true }
+            guard joinNextRound(gid, s) else { return false }
+            if b * 60 > Double(restCountdownSeconds) {  // a shorter break is all countdown numbers
+                showOverlay(exam: examBreakScreen(s.round, examTomatoes(s.plan).count, b, nextTomato(s).minutes))
+            }
+            return true
+        }
+        guard let e = exam else { return false }
+        guard 2 * e.block + 2 < e.plan.count else {
+            exam = nil
+            showOverlay(exam: doneScreen)
+            return true
+        }
+        onBreak = true
+        autoNext = true
+        breakMinutes = e.plan[2 * e.block + 1]
+        run(breakMinutes * unit)
+        if breakMinutes * unit > Double(restCountdownSeconds) {
+            showOverlay(exam: examBreakScreen(e.block + 1, examTomatoes(e.plan).count, breakMinutes, e.plan[2 * e.block + 2]))
+        }
+        return true
+    }
+
+    func examBreakScreen(_ k: Int, _ n: Int, _ b: Double, _ next: Double) -> ExamScreen {
+        ("Tomato \(k) of \(n) done!", "\(Int(b)) min break, then a \(Int(next)) min tomato.\n\(examBreakText(b))",
+         "OK", #selector(dismissOverlay), "Leave Exam mode")
+    }
+    func examDoneScreen() -> ExamScreen {
+        ("Exam mode done!", "\(todayText()). \(examDoneText)", "Done", #selector(resetTapped), nil)
+    }
+
+    // --overlay-shots <folder>: pictures of every red screen, drawn without showing anything (to check the layouts).
+    func overlayShots(_ dir: String) {
+        let shoot = { (name: String) in
+            guard let v = self.overlays.first?.contentView else { return }
+            v.layoutSubtreeIfNeeded()
+            guard let rep = v.bitmapImageRepForCachingDisplay(in: v.bounds) else { return }
+            v.cacheDisplay(in: v.bounds, to: rep)
+            try? rep.representation(using: .png, properties: [:])?.write(to: URL(fileURLWithPath: dir).appendingPathComponent(name + ".png"))
+        }
+        focused = 25
+        showOverlay(); shoot("solo")
+        group.gid = "g"; showOverlay(); shoot("group")
+        group.gid = nil
+        showOverlay(exam: examBreakScreen(1, 4, 8, 60)); shoot("exam-break")
+        showOverlay(exam: examBreakScreen(3, 4, 20, 45)); shoot("exam-long-break")
+        showOverlay(exam: examDoneScreen()); shoot("exam-done")
+    }
+
+    @objc func dismissOverlay() { closeOverlay() }
 
     @objc func reset() {
         countFocus()
@@ -428,39 +582,43 @@ final class OverlayWindow: NSPanel {
 
     @objc func pickTier(_ sender: NSMenuItem) {
         leaveGroupTomato()
+        exam = nil
         tierIndex = sender.tag
         UserDefaults.standard.set(tierIndex, forKey: "tier")
         custom = nil
         reset()
     }
 
-    // Asks for 1–60 whole minutes, then starts right away. The length repeats after "break, then next session".
-    @objc func customTomato() {
+    // Asks for a tomato's length in whole minutes, 1 to 480 (solo and group). nil: cancelled.
+    func askMinutes(_ title: String, value: Int? = nil, button: String = "Start") -> Int? {
         let limit = Int(maxFocusMinutes)
         let field = NSTextField(frame: NSRect(x: 0, y: 0, width: 220, height: 24))
         field.placeholderString = "Minutes, 1 to \(limit)"
-        if let custom { field.stringValue = "\(Int(custom.minutes))" }
+        if let value { field.stringValue = "\(value)" }
         let alert = NSAlert()
-        alert.messageText = "Custom tomato"
-        alert.informativeText = "How many minutes?"
+        alert.messageText = title
+        alert.informativeText = "How many minutes? Up to \(limit) (\(limit / 60) hours)."
         alert.accessoryView = field
-        alert.addButton(withTitle: "Start")
+        alert.addButton(withTitle: button)
         alert.addButton(withTitle: "Cancel")
         alert.window.initialFirstResponder = field
         NSApp.activate()
         while alert.runModal() == .alertFirstButtonReturn {
-            guard let m = Int(field.stringValue.trimmingCharacters(in: .whitespaces)), (1...limit).contains(m) else {
-                alert.informativeText = "Type a whole number from 1 to \(limit)."
-                continue
-            }
-            leaveGroupTomato()
-            // the tomato's color is the biggest tier it reaches: 30 min = red, 50 = golden
-            custom = Tier(name: "\(m)-min", minutes: Double(m),
-                          color: tiers.last { $0.minutes <= Double(m) }?.color ?? tiers[0].color)
-            reset()
-            run(left)
-            return
+            if let m = Int(field.stringValue.trimmingCharacters(in: .whitespaces)), (1...limit).contains(m) { return m }
+            alert.informativeText = "Type a whole number from 1 to \(limit)."
         }
+        return nil
+    }
+
+    // A typed length, started right away. The length repeats after "break, then next session".
+    @objc func customTomato() {
+        guard let m = askMinutes("Custom tomato", value: custom.map { Int($0.minutes) }) else { return }
+        leaveGroupTomato()
+        exam = nil
+        // the tomato's color is the biggest tier it reaches: 30 min = red, 50 = golden
+        custom = tomatoTier("\(m)-min", Double(m))
+        reset()
+        run(left)
     }
 
     @objc func break5ThenNext() { startBreak(5, thenNext: true) }
@@ -470,6 +628,7 @@ final class OverlayWindow: NSPanel {
 
     func startBreak(_ minutes: Double, thenNext: Bool = false) {
         leaveGroupTomato()  // the solo buttons on the red screen
+        exam = nil
         closeOverlay()
         onBreak = true
         autoNext = thenNext
@@ -479,6 +638,7 @@ final class OverlayWindow: NSPanel {
 
     @objc func oneMore() {
         leaveGroupTomato()
+        exam = nil
         closeOverlay()
         focused += 1
         run(unit)
@@ -489,12 +649,16 @@ final class OverlayWindow: NSPanel {
         item.button?.image = onBreak
             ? NSImage(systemSymbolName: "cup.and.saucer.fill", accessibilityDescription: "Break")
             : tomato(tier.color, size: 16)
-        statusTitle(String(format: " %d:%02d", secs / 60, secs % 60))
+        statusTitle(secs > 3600 ? String(format: " %d:%02d:%02d", secs / 3600, secs / 60 % 60, secs % 60)  // past an hour
+                                : String(format: " %d:%02d", secs / 60, secs % 60))
         toggleItem.title = end == nil ? "Start" : "Pause"
         todayItem.title = todayText()
         if calendarWindow?.isVisible == true { calendarView.needsDisplay = true }  // keep today's square live
-        tierItems.forEach { $0.state = custom == nil && $0.tag == tierIndex ? .on : .off }
-        customItem.state = custom == nil ? .off : .on
+        tierItems.forEach { $0.state = exam == nil && custom == nil && $0.tag == tierIndex ? .on : .off }
+        customItem.state = custom == nil || exam != nil ? .off : .on
+        examItem.state = exam == nil ? .off : .on
+        examItem.title = exam.map { "Exam mode · tomato \($0.block + 1) of \(examTomatoes($0.plan).count)" } ?? "Exam mode"
+        examStartItem.title = exam == nil ? "Start · \(examText(examPlan))" : "Stop Exam mode"
         customItem.title = custom.map { "Custom tomato · \(Int($0.minutes)) min…" } ?? "Custom tomato…"
         customItem.image = tomato(custom?.color ?? .systemGray, size: 16)
         publishStatus()
@@ -507,7 +671,11 @@ final class OverlayWindow: NSPanel {
         let last = group.gid != nil ? countdownSeconds + 1 : 1
         if onBreak, autoNext || group.gid != nil, let end, end.timeIntervalSinceNow <= Double(restCountdownSeconds),
            end.timeIntervalSinceNow > Double(last - 1) {
-            if rest?.endAt != end { rest?.close(); rest = RestCountdown(endAt: end, last: last) }
+            if rest?.endAt != end {
+                rest?.close()
+                rest = RestCountdown(endAt: end, last: last)
+                closeOverlay()  // Exam mode's break screen, if it's still up: the numbers take over
+            }
         } else {
             rest?.close()
             rest = nil
@@ -515,9 +683,11 @@ final class OverlayWindow: NSPanel {
     }
 
     // Pulsing red layer over every screen (above full-screen apps and the menu bar) until a button is picked.
-    func showOverlay() {
+    // `exam`: Exam mode's screen instead (examBlockEnded).
+    func showOverlay(exam screen: ExamScreen? = nil) {
         closeOverlay()
         let canExtend = focused + 1 <= maxFocusMinutes
+        let examScreen = screen
         overlays = NSScreen.screens.map { screen in
             let w = OverlayWindow(contentRect: screen.frame, styleMask: [.borderless, .nonactivatingPanel],
                                   backing: .buffered, defer: false)
@@ -546,12 +716,14 @@ final class OverlayWindow: NSPanel {
                 glow.layer?.add(pulse, forKey: "pulse")
             }
 
-            let title = NSTextField(labelWithString: "\(tier.name) tomato done!")
+            let title = NSTextField(labelWithString: examScreen?.title ?? "\(tier.name) tomato done!")
             title.font = .boldSystemFont(ofSize: 40)
             title.textColor = .white
-            let sub = NSTextField(labelWithString: "You focused \(Int(focused)) min · \(todayText())")
+            let sub = NSTextField(wrappingLabelWithString: examScreen?.sub ?? "You focused \(Int(focused)) min · \(todayText())")
             sub.font = .systemFont(ofSize: 20)
             sub.textColor = .white
+            sub.alignment = .center
+            sub.isSelectable = false
             // default button (Return): the group break after a group tomato, else 5 min break then next
             let inGroup = group.gid != nil
             let next = button("5 min break, then next session", #selector(break5ThenNext),
@@ -566,10 +738,35 @@ final class OverlayWindow: NSPanel {
             let row2 = NSStackView(views: others)
             [row1, row2].forEach { $0.spacing = 16 }
             var rows = [row1, row2]
-            if inGroup {
-                let together = button("10 min break, then next group tomato", #selector(groupBreak), color: .controlAccentColor)
+            if inGroup {  // the group break, with the same tomato next, or one of the four picked right here
+                let b = group.gid.flatMap { self.store.sessions[$0] }.flatMap(breakAfter) ?? groupBreakMinutes
+                let together = button("\(Int(b)) min break, then next group tomato", #selector(groupBreak), color: .controlAccentColor)
                 together.keyEquivalent = "\r"
+                together.tag = -1
+                let label = NSTextField(labelWithString: "…or make the next one:")
+                label.font = .systemFont(ofSize: 15)
+                label.textColor = NSColor(white: 1, alpha: 0.8)
+                let picks = tiers.enumerated().map { i, t in
+                    let p = button("\(t.name) \(Int(t.minutes))", #selector(groupBreak))
+                    p.tag = i
+                    return p
+                }
+                let pick = NSStackView(views: [label] + picks)
+                pick.spacing = 10
+                rows.insert(pick, at: 0)
                 rows.insert(NSStackView(views: [together]), at: 0)
+            }
+            if let examScreen {  // nothing to choose: OK, or out
+                let ok = button(examScreen.ok, examScreen.okAction, color: .controlAccentColor)
+                ok.keyEquivalent = "\r"
+                var buttons = [ok]
+                if let leave = examScreen.leave {
+                    let out = button(leave, #selector(resetTapped))
+                    out.keyEquivalent = "\u{1b}"  // Esc
+                    buttons.append(out)
+                }
+                rows = [NSStackView(views: buttons)]
+                rows[0].spacing = 16
             }
             let row = NSStackView(views: rows)
             row.orientation = .vertical
@@ -590,11 +787,13 @@ final class OverlayWindow: NSPanel {
                 card.centerXAnchor.constraint(equalTo: content.centerXAnchor),
                 card.centerYAnchor.constraint(equalTo: content.centerYAnchor),
                 card.widthAnchor.constraint(equalTo: row.widthAnchor, constant: 112),  // side padding
+                row.widthAnchor.constraint(greaterThanOrEqualToConstant: 520),  // room for Exam mode's two lines
+                sub.widthAnchor.constraint(lessThanOrEqualTo: row.widthAnchor),
             ])
-            w.orderFrontRegardless()
+            if !CommandLine.arguments.contains("--overlay-shots") { w.orderFrontRegardless() }
             return w
         }
-        overlays.first?.makeKey()  // first screen = the one with the menu bar
+        if overlays.first?.isVisible == true { overlays.first?.makeKey() }  // first screen = the one with the menu bar
     }
 
     func closeOverlay() {

@@ -8,6 +8,13 @@ import FirebaseAuth
 import FirebaseFirestore
 
 let useEmulator = CommandLine.arguments.contains("--emulator")  // local Firebase emulators (firebase/firebase.json)
+// The direct download (Developer ID, tools/release-direct.sh) may not use Sign in with Apple (Apple rule), so it signs in
+// anonymously, like the emulators: the invite code and a typed name are all a member needs. App Store builds: false.
+#if DIRECT
+let codeSignIn = true
+#else
+let codeSignIn = useEmulator
+#endif
 
 // Groups exist only when Firebase is configured: the bundled GoogleService-Info.plist, or the local emulators.
 // Without either, Tomatime is the solo timer it always was.
@@ -147,7 +154,7 @@ private func isDenied(_ e: Error) -> Bool { (e as NSError).code == FirestoreErro
     // MARK: Signing in
 
     func signIn(anchor: NSWindow) async throws {
-        if useEmulator {
+        if codeSignIn {
             _ = try await withTimeout { try await Auth.auth().signInAnonymously() }
         } else {
             let (credential, _) = try await appleCredential(anchor: anchor)
@@ -181,7 +188,7 @@ private func isDenied(_ e: Error) -> Bool { (e as NSError).code == FirestoreErro
     func deleteAccount(anchor: NSWindow) async throws {
         guard let user = Auth.auth().currentUser, let uid else { throw GroupError.notSignedIn }
         var appleCode: String?
-        if !useEmulator {
+        if !codeSignIn {
             let (credential, code) = try await appleCredential(anchor: anchor)
             _ = try await withTimeout { try await user.reauthenticate(with: credential) }
             appleCode = code
@@ -326,16 +333,19 @@ private func isDenied(_ e: Error) -> Bool { (e as NSError).code == FirestoreErro
     // MARK: Group tomatoes
 
     // Refused (GroupError.busy) while a group tomato or a group break is on: it would wipe it out for the others.
-    func startSession(_ gid: String, tierName: String, minutes: Double) async throws {
+    // `plan`: Exam mode (focus, break, focus, …); its first tomato is `minutes`.
+    func startSession(_ gid: String, tierName: String, minutes: Double, plan: [Double] = []) async throws {
         guard let uid else { throw GroupError.notSignedIn }
         try await online()  // the transaction alone isn't enough: disableNetwork() doesn't stop transaction calls
         let ref = sessionDoc(gid), name = myName ?? "", device = deviceKey
         try await transact { tx in
             let current = try tx.getDocument(ref).data().flatMap { session(data: plain($0) as! [String: Any]) }
             guard canStartSession(current, now: Date()) else { throw GroupError.busy }
-            tx.setData(["id": UUID().uuidString, "round": 1, "startedBy": uid, "starterName": name, "tierName": tierName,
-                        "minutes": minutes, "createdAt": FieldValue.serverTimestamp(), "cancelled": false,
-                        "joined": [uid], "nextJoined": [], "devices": [uid: device]], forDocument: ref)
+            var data: [String: Any] = ["id": UUID().uuidString, "round": 1, "startedBy": uid, "starterName": name,
+                        "tierName": tierName, "minutes": minutes, "createdAt": FieldValue.serverTimestamp(), "cancelled": false,
+                        "joined": [uid], "nextJoined": [], "devices": [uid: device]]
+            if !plan.isEmpty { data["plan"] = plan }
+            tx.setData(data, forDocument: ref)
         }
     }
 
@@ -362,10 +372,33 @@ private func isDenied(_ e: Error) -> Bool { (e as NSError).code == FirestoreErro
         let ref = sessionDoc(gid)
         db.runTransaction({ tx, _ in
             guard let d = try? tx.getDocument(ref).data(), (d["round"] as? Int) == round else { return nil }
-            tx.updateData(["round": round + 1, "startAt": startAt, "joined": d["nextJoined"] ?? [], "nextJoined": [],
-                           "id": UUID().uuidString], forDocument: ref)
+            var next: [String: Any] = ["round": round + 1, "startAt": startAt, "joined": d["nextJoined"] ?? [], "nextJoined": [],
+                                       "id": UUID().uuidString]
+            if let s = session(data: plain(d) as! [String: Any]) {  // the tomato picked during the break, or the plan's
+                // Its tomato was made longer after this Mac went on the break: it isn't over, nothing moves on.
+                guard sessionPhase(s, now: Date()) == .over else { return nil }
+                let t = nextTomato(s)
+                next.merge(["tierName": t.name, "minutes": t.minutes, "nextTierName": FieldValue.delete(),
+                            "nextMinutes": FieldValue.delete(), "nextRound": FieldValue.delete()]) { _, b in b }
+            }
+            tx.updateData(next, forDocument: ref)
             return nil
         }) { _, _ in }
+    }
+
+    // Anyone in it: this group tomato's length while it runs, or (`next`) the next round's, during the group break.
+    func setTomato(_ gid: String, sid: String, tierName: String, minutes: Double, next: Bool) {
+        let ref = sessionDoc(gid)
+        Task {
+            try? await transact { tx in
+                guard let d = try tx.getDocument(ref).data(), (d["id"] as? String) == sid else { return }
+                let data: [String: Any] = next
+                    ? ["nextTierName": tierName, "nextMinutes": minutes, "nextRound": ((d["round"] as? NSNumber)?.intValue ?? 1) + 1]
+                    : ["tierName": tierName, "minutes": minutes, "nextTierName": FieldValue.delete(),
+                       "nextMinutes": FieldValue.delete(), "nextRound": FieldValue.delete()]
+                tx.updateData(data, forDocument: ref)
+            }
+        }
     }
 
     func cancelSession(_ gid: String, sid: String) {

@@ -25,20 +25,23 @@ extension App {
         if s.running, (s.endAt ?? 0) <= now.timeIntervalSince1970 { return }  // already over (e.g. seen at launch)
         applyingRemote = true
         defer { applyingRemote = false }
+        // Pausing or resuming Exam mode's tomato or break from the phone or watch keeps it going; anything else ends it.
+        let sameBlock = exam != nil && s.phase == (onBreak ? .rest : .focus) && s.minutes == (onBreak ? breakMinutes : focused)
+        if !sameBlock { exam = nil }
         leaveGroupTomato()
         closeOverlay()
         guard s.phase != .idle else { return reset() }
         onBreak = s.phase == .rest
-        autoNext = false
+        autoNext = sameBlock && onBreak
         if onBreak {
             breakMinutes = s.minutes
         } else {
-            if let i = tiers.firstIndex(where: { $0.name == s.tier && $0.minutes == s.minutes }) {
+            if sameBlock {  // Exam mode's tomato: my own pick stays what it was
+            } else if let i = tiers.firstIndex(where: { $0.name == s.tier && $0.minutes == s.minutes }) {
                 tierIndex = i
                 custom = nil
             } else {
-                custom = Tier(name: s.tier, minutes: s.minutes,
-                              color: tiers.last { $0.minutes <= s.minutes }?.color ?? tiers[0].color)
+                custom = tomatoTier(s.tier, s.minutes)
             }
             focused = s.minutes
         }

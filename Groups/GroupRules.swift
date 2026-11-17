@@ -57,6 +57,10 @@ struct GroupSession {
     var joined: [String]
     var nextJoined: [String]
     var devices: [String: String]  // member → the one Mac of theirs that runs this tomato (last to opt in)
+    var plan: [Double] = []          // Exam mode: focus, break, focus, …, focus minutes; round r runs plan[2(r-1)]
+    var nextTierName: String? = nil  // the tomato someone picked for round `nextRound`, during the group break
+    var nextMinutes: Double? = nil
+    var nextRound: Int? = nil
 }
 
 enum JoinVerdict: Equatable { case ok, alreadyMember, full, needsPass }
@@ -78,12 +82,16 @@ func friendsFocusing(_ groups: [TomatoGroup], me: String, now: Date) -> Int {
     Set(groups.flatMap(\.members).filter { $0.uid != me && effectiveState($0.status, now: now) == .focus }.map(\.uid)).count
 }
 
+// Minutes shown anywhere: whole minutes done. A finished tomato tallies a few ms short of its length, so half a
+// second is forgiven. One rule for a person's line, the calendar squares and the ranking, so they agree.
+func wholeMinutes(_ seconds: Double) -> Int { Int((seconds + 0.5) / 60) }
+
 func statusText(_ m: Member, now: Date) -> String {
     let left = Int(((m.status.endsAt ?? now).timeIntervalSince(now) / 60).rounded(.up))
     switch effectiveState(m.status, now: now) {
     case .focus: return "\(m.status.tierName) · \(left) min"
     case .rest: return "break · \(left) min"
-    case .idle: return "\(Int(memberSeconds(m, day: now) / 60)) min today"
+    case .idle: return "\(wholeMinutes(memberSeconds(m, day: now))) min today"
     }
 }
 
@@ -94,14 +102,20 @@ func memberSeconds(_ m: Member, day: Date) -> Double {
 }
 
 func groupDayMinutes(_ g: TomatoGroup, days: [Date]) -> [Int] {
-    days.map { day in Int((g.members.reduce(0) { $0 + memberSeconds($1, day: day) } + 30) / 60) }
+    days.map { day in g.members.reduce(0) { $0 + wholeMinutes(memberSeconds($1, day: day)) } }
+}
+
+// One day's minutes per member, most first (ties alphabetical): the calendar shows them when a day is clicked.
+func dayRanking(_ g: TomatoGroup, day: Date) -> [(name: String, minutes: Int)] {
+    g.members.map { (name: $0.name, minutes: wholeMinutes(memberSeconds($0, day: day))) }
+        .sorted { $0.minutes != $1.minutes ? $0.minutes > $1.minutes : $0.name < $1.name }
 }
 
 func weeklyRanking(_ g: TomatoGroup, now: Date, calendar: Calendar) -> [(name: String, minutes: Int)] {
     let start = calendar.dateInterval(of: .weekOfYear, for: now)!.start
     let days = (0..<7).map { calendar.date(byAdding: .day, value: $0, to: start)! }
     return g.members
-        .map { m in (name: m.name, minutes: Int((days.reduce(0) { $0 + memberSeconds(m, day: $1) } + 30) / 60)) }
+        .map { m in (name: m.name, minutes: days.reduce(0) { $0 + wholeMinutes(memberSeconds(m, day: $1)) }) }
         .sorted { $0.minutes != $1.minutes ? $0.minutes > $1.minutes : $0.name < $1.name }
 }
 
@@ -113,13 +127,77 @@ func sessionPhase(_ s: GroupSession, now: Date) -> SessionPhase {
     return left > 0 ? .running(left) : .over
 }
 
-func nextRoundStart(after end: Date) -> Date { end + groupBreakMinutes * 60 }
+// Exam mode: a plan of tomatoes and breaks run back to back, solo or as a group; people can type their own.
+// The recommended one and the studies behind it: docs/exam-mode-science.md. In short: a short opener, the longest
+// tomato second (while fresh, not last), breaks that grow, one of 20 minutes, no phone in breaks, a walk at the end.
+let recommendedExamPlan: [Double] = [25, 8, 60, 10, 45, 20, 45]
+let examDoneText = "Go take a walk."
+func examBreakText(_ minutes: Double) -> String {
+    minutes >= 15 ? "Leave your desk and walk, outside if you can. Phone stays in your pocket."
+                  : "Stand up, stretch, drink some water. Leave your phone alone."
+}
+
+// "25, 8, 45, 10, 45" → focus, break, focus, break, focus. Starts and ends with a tomato; whole minutes, 1 to 480.
+func parseExamPlan(_ text: String) -> [Double]? {
+    let parts = text.split(whereSeparator: { !$0.isNumber })
+    let plan = parts.compactMap { Double($0) }
+    guard plan.count == parts.count, plan.count >= 3, plan.count <= 23, plan.count % 2 == 1,
+          plan.allSatisfy({ $0 >= 1 && $0 <= 480 }) else { return nil }
+    return plan
+}
+func examTomatoes(_ plan: [Double]) -> [Double] { stride(from: 0, to: plan.count, by: 2).map { plan[$0] } }
+// "25 → 45 → 45 → 60 min"
+func examText(_ plan: [Double]) -> String { examTomatoes(plan).map { "\(Int($0))" }.joined(separator: " → ") + " min" }
+
+// A tomato's name from its length: one of the four, or "50-min".
+func tomatoName(_ minutes: Double) -> String { tomatoTiers.first { $0.minutes == minutes }?.name ?? "\(Int(minutes))-min" }
+
+// The break after this round: 10 minutes, or what the Exam mode plan says. nil: its last tomato (no next round).
+func breakAfter(_ s: GroupSession) -> Double? {
+    if s.plan.isEmpty { return groupBreakMinutes }
+    let i = 2 * s.round - 1
+    return i + 1 < s.plan.count ? s.plan[i] : nil
+}
+func nextRoundStart(_ s: GroupSession) -> Date? { breakAfter(s).map { s.startAt + (s.minutes + $0) * 60 } }
+
+// The tomato someone picked for round `round` (a pick names its round, so one made a moment early or late
+// can't be taken for another round's).
+func picked(_ s: GroupSession, for round: Int) -> (name: String, minutes: Double)? {
+    guard s.plan.isEmpty, let m = s.nextMinutes, s.nextRound == round else { return nil }
+    return (s.nextTierName ?? tomatoName(m), m)
+}
+
+// The next round's tomato: the plan's, or what someone picked during the group break, or the same again.
+func nextTomato(_ s: GroupSession) -> (name: String, minutes: Double) {
+    if !s.plan.isEmpty {
+        let m = 2 * s.round < s.plan.count ? s.plan[2 * s.round] : s.minutes
+        return (tomatoName(m), m)
+    }
+    return picked(s, for: s.round + 1) ?? (s.tierName, s.minutes)
+}
+
+// Tomatime 1.2.2 and older move the group on with the same tomato again: they don't know the pick or the plan.
+// What this round should be instead (nil: it's right); a newer Tomatime puts it right as the countdown shows.
+func roundFix(_ s: GroupSession) -> (name: String, minutes: Double)? {
+    guard s.round > 1 else { return nil }
+    if s.plan.isEmpty { return picked(s, for: s.round) }
+    let i = 2 * (s.round - 1)
+    return i < s.plan.count && s.plan[i] != s.minutes ? (tomatoName(s.plan[i]), s.plan[i]) : nil
+}
+
+// A running group tomato can be made longer or shorter by anyone in it, as long as a minute of it is left.
+// Not in its last 10 seconds: the others' may already have run out before the change reaches them.
+func canResize(_ s: GroupSession, to minutes: Double, now: Date) -> Bool {
+    guard s.plan.isEmpty, case .running(let left) = sessionPhase(s, now: now), left > 10 else { return false }
+    return s.startAt + minutes * 60 > now + 60
+}
 
 // A new group tomato never replaces one that's on, or a group break people picked (they'd lose their next round).
 func canStartSession(_ s: GroupSession?, now: Date) -> Bool {
     guard let s, !s.cancelled else { return true }
     if sessionPhase(s, now: now) != .over { return false }
-    return s.nextJoined.isEmpty || nextRoundStart(after: s.startAt + s.minutes * 60) <= now
+    guard let next = nextRoundStart(s) else { return true }
+    return s.nextJoined.isEmpty || next <= now
 }
 
 // The group's session line in the menu; minutes are rounded up. `here`: this Mac is in this round.
@@ -134,8 +212,8 @@ func sessionMenu(_ s: GroupSession?, me: String, device: String, here: Bool, now
         let m = Int((left / 60).rounded(.up))
         return here ? .inIt(m) : otherMacHasIt(s, me: me, device: device) ? .otherMac(m) : .joinRunning(m)
     case .over:
-        guard !s.cancelled, !s.nextJoined.isEmpty else { return .start }
-        let toNext = nextRoundStart(after: s.startAt + s.minutes * 60).timeIntervalSince(now)
+        guard !s.cancelled, !s.nextJoined.isEmpty, let next = nextRoundStart(s) else { return .start }
+        let toNext = next.timeIntervalSince(now)
         if toNext <= 0 { return .start }
         if toNext <= Double(countdownSeconds) { return .starting }
         let m = Int((toNext / 60).rounded(.up))
@@ -215,7 +293,11 @@ func session(data: [String: Any]) -> GroupSession? {
                         minutes: (data["minutes"] as? NSNumber)?.doubleValue ?? 0, startAt: startAt,
                         cancelled: data["cancelled"] as? Bool ?? false, joined: data["joined"] as? [String] ?? [],
                         nextJoined: data["nextJoined"] as? [String] ?? [],
-                        devices: data["devices"] as? [String: String] ?? [:])
+                        devices: data["devices"] as? [String: String] ?? [:],
+                        plan: (data["plan"] as? [NSNumber])?.map(\.doubleValue) ?? [],
+                        nextTierName: data["nextTierName"] as? String,
+                        nextMinutes: (data["nextMinutes"] as? NSNumber)?.doubleValue,
+                        nextRound: (data["nextRound"] as? NSNumber)?.intValue)
 }
 
 enum GroupError: LocalizedError {

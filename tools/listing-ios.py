@@ -1,15 +1,20 @@
-"""iPhone + Apple Watch App Store listing (version 1.2): text, review notes and screenshots from
-store/screenshots-ios (tools/screenshots.sh). Usage: python3 tools/listing-ios.py"""
+"""iPhone + Apple Watch App Store listing, for the iOS version that is still editable: screenshots from
+store/screenshots-ios (tools/screenshots.sh); with --text also the text and review notes below.
+Usage: python3 tools/listing-ios.py [--text]"""
 import glob
 import hashlib
 import os
+import sys
 
 import requests
 
 from asc import api
 
-VERSION = "13ea182e-b383-4d6b-96e2-4585bcace42d"   # iOS 1.2
-LOC = "c0ae36a9-14fa-40b7-b5d7-12afa85becce"       # its en-US
+EDITABLE = {"PREPARE_FOR_SUBMISSION", "DEVELOPER_REJECTED", "REJECTED", "METADATA_REJECTED"}
+VERSION = next(v["id"] for v in api("GET", "/v1/apps/6832374095/appStoreVersions", **{"filter[platform]": "IOS"})["data"]
+               if v["attributes"]["appStoreState"] in EDITABLE)
+LOC = next(l["id"] for l in api("GET", f"/v1/appStoreVersions/{VERSION}/appStoreVersionLocalizations")["data"]
+           if l["attributes"]["locale"] == "en-US")
 SHOTS = os.path.join(os.path.dirname(__file__), "..", "store", "screenshots-ios")
 
 DESCRIPTION = """Tomatime keeps your focus sessions honest, on your iPhone and Apple Watch.
@@ -41,12 +46,13 @@ Sign in with Apple is optional. It syncs this timer with the same person's Tomat
 
 The bottom switch picks how the countdown looks: Numbers or Red clock."""
 
-api("PATCH", f"/v1/appStoreVersionLocalizations/{LOC}", {"data": {"type": "appStoreVersionLocalizations", "id": LOC,
-    "attributes": {"description": DESCRIPTION, "promotionalText": PROMO, "keywords": KEYWORDS}}})
-review = api("GET", f"/v1/appStoreVersions/{VERSION}/appStoreReviewDetail")["data"]
-api("PATCH", f"/v1/appStoreReviewDetails/{review['id']}", {"data": {"type": "appStoreReviewDetails", "id": review["id"],
-    "attributes": {"notes": NOTES, "demoAccountRequired": False}}})
-print("text + review notes set")
+if "--text" in sys.argv:
+    api("PATCH", f"/v1/appStoreVersionLocalizations/{LOC}", {"data": {"type": "appStoreVersionLocalizations", "id": LOC,
+        "attributes": {"description": DESCRIPTION, "promotionalText": PROMO, "keywords": KEYWORDS}}})
+    review = api("GET", f"/v1/appStoreVersions/{VERSION}/appStoreReviewDetail")["data"]
+    api("PATCH", f"/v1/appStoreReviewDetails/{review['id']}", {"data": {"type": "appStoreReviewDetails", "id": review["id"],
+        "attributes": {"notes": NOTES, "demoAccountRequired": False}}})
+    print("text + review notes set")
 
 def upload(display_type, pattern):
     sets = api("GET", f"/v1/appStoreVersionLocalizations/{LOC}/appScreenshotSets")["data"]

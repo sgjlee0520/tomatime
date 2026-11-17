@@ -13,7 +13,7 @@ func tierColor(_ name: String) -> Color {
 
 func clock(_ seconds: Double) -> String {
     let s = max(0, Int(seconds.rounded(.up)))
-    return String(format: "%d:%02d", s / 60, s % 60)
+    return s > 3600 ? String(format: "%d:%02d:%02d", s / 3600, s / 60 % 60, s % 60) : String(format: "%d:%02d", s / 60, s % 60)
 }
 
 // Ticks by itself (also on the lock screen and in Always On) while running; a still time while paused.
