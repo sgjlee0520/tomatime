@@ -1,0 +1,70 @@
+<!doctype html>
+<html lang="en" class="overlay">
+<head>
+<meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline'">
+<title>Tomatime</title>
+<link rel="stylesheet" href="style.css">
+<style>
+/* The 10 seconds before a group tomato (Groups/Countdown.swift): the desktop stays visible under a light tint,
+   a giant number fades out while it grows each second, and a dark bar at the bottom holds the buttons. */
+body { background: rgba(0, 0, 0, .18); }
+#n {
+  position: fixed; inset: 0 0 8vh; display: grid; place-items: center; font: 900 62vh/1 "Segoe UI Variable Display", "Segoe UI", system-ui, sans-serif;
+  color: rgba(255, 255, 255, .92); text-shadow: 0 6px 24px rgba(0, 0, 0, .45); opacity: 0; font-variant-numeric: tabular-nums;
+}
+#n.beat { animation: beat 1s ease-in; }
+@keyframes beat { from { opacity: 1; transform: scale(.85); } to { opacity: 0; transform: scale(1.15); } }
+@media (prefers-reduced-motion: reduce) { @keyframes beat { from { opacity: 1; } to { opacity: 0; } } }
+#bar {
+  position: fixed; left: 50%; bottom: 5vh; transform: translateX(-50%); display: flex; align-items: center; gap: 16px;
+  max-width: 96vw; padding: 10px 28px; border-radius: 32px; background: rgba(0, 0, 0, .78); white-space: nowrap;
+}
+#title { font-size: 17px; font-weight: 600; }
+#note, #names { font-size: 14px; opacity: .75; }
+</style>
+</head>
+<body class="overlay">
+<div id="n" aria-live="assertive"></div>
+<div id="bar">
+  <span id="title"></span>
+  <button class="pill go" id="join" hidden>Join ⏎</button>
+  <button class="pill" id="skip" hidden></button>
+  <button class="pill" id="cancel" hidden>Cancel</button>
+  <span id="note" hidden></span>
+  <span id="names"></span>
+</div>
+<script>
+const $ = (id) => document.getElementById(id);
+const c = JSON.parse(new URLSearchParams(location.search).get('d'));  // { title, mode, startAt, note, joined, waiting, quiet }
+let joined = c.mode !== 'invite', shown = '';
+$('title').textContent = c.title;
+const names = (x) => { $('names').textContent = [...x.joined.map((n) => `${n} ✓`), ...x.waiting.map((n) => `${n} …`)].join(' · '); };
+names(c);
+tomatime.on('names', names);
+if (c.mode === 'invite') { $('join').hidden = $('skip').hidden = false; $('skip').textContent = 'Skip'; }
+if (c.mode === 'autoJoin') { $('skip').hidden = $('note').hidden = false; $('skip').textContent = 'Skip this one  esc'; $('note').textContent = c.note; }
+if (c.mode === 'starter') $('cancel').hidden = false;
+const act = (what) => tomatime.invoke('countdown', what);
+tomatime.on('joined', () => { joined = true; $('join').hidden = $('skip').hidden = true; });  // on every display
+$('join').onclick = () => act('join');
+$('skip').onclick = () => act('skip');
+$('cancel').onclick = () => act('cancel');
+onkeydown = (e) => {
+  if (e.key === 'Enter' && !$('join').hidden) $('join').click();
+  if (e.key === 'Escape') (c.mode === 'starter' ? $('cancel') : $('skip')).click();
+};
+// "Go" stays up for a second, only if you're in. The window on the main display tells the app when it's over.
+const timer = setInterval(() => {
+  const left = (c.startAt - Date.now()) / 1000;
+  if (left <= (joined ? -1 : 0)) { clearInterval(timer); if (!c.quiet) act('over'); return; }
+  const text = left > 0 ? String(Math.ceil(left)) : 'Go';
+  if (text === shown) return;
+  shown = text;
+  const n = $('n');
+  n.textContent = text;
+  n.classList.remove('beat'); void n.offsetWidth; n.classList.add('beat');
+}, 50);
+</script>
+</body>
+</html>

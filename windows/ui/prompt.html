@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline'">
+<title>Tomatime</title>
+<link rel="stylesheet" href="style.css">
+<style>body { padding: 22px 24px; } .row { margin-top: 6px; }</style>
+</head>
+<body>
+<!-- A small question: a title, a line of explanation, one field per thing asked. main.js: ask(). -->
+<form id="f">
+  <h1 id="title"></h1>
+  <p id="info"></p>
+  <div id="fields"></div>
+  <div class="row"><button type="button" class="plain" id="cancel">Cancel</button><button class="primary" id="ok"></button></div>
+</form>
+<script>
+const q = JSON.parse(new URLSearchParams(location.search).get('d'));
+title.textContent = q.title; info.textContent = q.info; ok.textContent = q.button;
+for (const f of q.fields) {
+  const label = document.createElement('label'), input = document.createElement('input');
+  label.textContent = f.label ?? '';
+  Object.assign(input, { name: f.key, required: true, value: f.value ?? '', placeholder: f.placeholder ?? '' });
+  if (f.minutes) Object.assign(input, { type: 'number', min: 1, max: f.minutes, step: 1 });
+  else Object.assign(input, { type: 'text', maxLength: f.limit, pattern: '.*\\S.*' });  // not only spaces
+  if (!f.label) input.setAttribute('aria-labelledby', 'title');
+  label.append(input);
+  fields.append(label);
+}
+document.querySelector('input').select();
+f.onsubmit = (e) => { e.preventDefault(); tomatime.invoke('prompt', Object.fromEntries([...new FormData(f)].map(([k, v]) => [k, v.trim()]))); };
+cancel.onclick = () => tomatime.invoke('prompt', null);
+onkeydown = (e) => { if (e.key === 'Escape') cancel.click(); };
+</script>
+</body>
+</html>

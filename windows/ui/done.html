@@ -1,0 +1,72 @@
+<!doctype html>
+<html lang="en" class="overlay">
+<head>
+<meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline'">
+<title>Tomatime</title>
+<link rel="stylesheet" href="style.css">
+<style>
+/* The tomato is done (main.swift showOverlay): a slow red glow over every display until a button is picked. */
+#glow { position: fixed; inset: 0; background: #ff3b30; opacity: .45; animation: glow .8s ease-in-out infinite alternate; }
+@keyframes glow { from { opacity: .2; } to { opacity: .6; } }  /* well under 3 flashes a second */
+@media (prefers-reduced-motion: reduce) { #glow { animation: none; } }
+#card {
+  position: fixed; left: 50%; top: 50%; transform: translate(-50%, -50%); display: flex; flex-direction: column; align-items: center;
+  gap: 18px; padding: 36px 56px; border-radius: 28px; background: rgba(0, 0, 0, .88); text-align: center; max-width: 96vw;
+}
+h1 { font-size: 40px; font-weight: 700; margin: 0; }
+#sub { font-size: 20px; color: #fff; margin: 0; white-space: pre-line; max-width: 560px; }
+#picks { align-items: center; gap: 10px; }
+#picks span { font-size: 15px; opacity: .8; white-space: nowrap; }
+.buttons { display: flex; flex-direction: column; gap: 12px; align-items: center; }
+.buttons div { display: flex; gap: 16px; justify-content: center; }
+@media (max-width: 820px) { .buttons div { flex-wrap: wrap; } }
+</style>
+</head>
+<body class="overlay">
+<div id="glow"></div>
+<div id="card" role="dialog" aria-labelledby="title">
+  <svg width="110" height="110" viewBox="0 0 100 100" aria-hidden="true">
+    <path id="body" d="M50 24c22 0 40 13 40 35 0 21-17 35-40 35S10 80 10 59c0-22 18-35 40-35z" stroke="#1b1b1b" stroke-width="3" stroke-linejoin="round"/>
+    <path d="M50 30l6-14 2 13 14-4-11 10 12 7-15-1-4 13-4-13-15 1 12-7-11-10 14 4z" fill="#2f7a3a" stroke="#1b1b1b" stroke-width="2.5" stroke-linejoin="round"/>
+  </svg>
+  <h1 id="title"></h1>
+  <p id="sub"></p>
+  <div class="buttons">
+    <div id="together" hidden><button class="pill go" data-pick="groupBreak" id="group"></button></div>
+    <div id="picks" hidden><span>…or make the next one:</span><button class="pill" data-pick="groupBreak:0">Green 20</button><button class="pill" data-pick="groupBreak:1">Red 25</button><button class="pill" data-pick="groupBreak:2">Golden 45</button><button class="pill" data-pick="groupBreak:3">Diamond 60</button></div>
+    <div id="exam" hidden><button class="pill go" id="ok"></button><button class="pill" data-pick="end" id="leave"></button></div>
+    <div><button class="pill" data-pick="break5next" id="next">5 min break, then next session</button><button class="pill" data-pick="break10next">10 min break, then next session</button></div>
+    <div><button class="pill" data-pick="break5">5 min break</button><button class="pill" data-pick="break10">10 min break</button><button class="pill" data-pick="oneMore" id="more">1 more minute</button><button class="pill" data-pick="end">End session</button></div>
+  </div>
+</div>
+<script>
+const $ = (id) => document.getElementById(id);
+// { tierName, color, focused, today, inGroup, canExtend, groupBreak (minutes), exam: { title, sub, ok, leave?, done? } }
+const d = JSON.parse(new URLSearchParams(location.search).get('d')), exam = d.exam;
+$('body').setAttribute('fill', d.color);
+$('title').textContent = exam?.title ?? `${d.tierName} tomato done!`;
+$('sub').textContent = exam?.sub ?? `You focused ${d.focused} min · ${d.today}`;
+$('group').textContent = `${d.groupBreak ?? 10} min break, then next group tomato`;
+$('together').hidden = $('picks').hidden = !d.inGroup;
+$('more').hidden = !d.canExtend;
+if (!d.inGroup) $('next').classList.add('go');
+const pick = (what) => tomatime.invoke('done', what);
+// Exam mode: nothing to choose. Its break has already started (OK), or it's all done (Done = a fresh tomato).
+const ok = exam?.done ? 'end' : 'ok';
+if (exam) {
+  for (const row of document.querySelectorAll('.buttons > div')) row.hidden = row.id !== 'exam';
+  $('ok').textContent = exam.ok;
+  $('ok').onclick = () => pick(ok);
+  $('leave').textContent = exam.leave ?? '';
+  $('leave').hidden = !exam.leave;
+}
+for (const b of document.querySelectorAll('[data-pick]')) b.onclick = () => pick(b.dataset.pick);
+// Enter: the group break after a group tomato, else 5 min break then next. Esc: End session. Exam mode: OK, and out.
+onkeydown = (e) => {
+  if (e.key === 'Enter' && !e.target.closest?.('button')) pick(exam ? ok : d.inGroup ? 'groupBreak' : 'break5next');
+  if (e.key === 'Escape') pick(exam && !exam.leave ? ok : 'end');
+};
+</script>
+</body>
+</html>

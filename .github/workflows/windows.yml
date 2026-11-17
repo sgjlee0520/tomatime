@@ -1,0 +1,51 @@
+# Builds the Windows installer, installs it on a real Windows machine, and clicks through it there
+# (windows/main.js --selftest): welcome, join with code + name, a typed tomato, the red screen, a group invite.
+# The installer and photos of that run are kept with the run (Artifacts).
+name: Windows app
+on:
+  push:
+    paths: ['windows/**', '.github/workflows/windows.yml']
+  workflow_dispatch:
+jobs:
+  build:
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Rules
+        working-directory: windows
+        run: npm ci --no-audit --no-fund && npm test
+      - name: Firebase settings (kept out of the repo, like GoogleService-Info.plist)
+        env:
+          FIREBASE_WEB_CONFIG: ${{ secrets.FIREBASE_WEB_CONFIG }}
+        run: |
+          test -n "$FIREBASE_WEB_CONFIG" || { echo "Add the repo secret FIREBASE_WEB_CONFIG (the contents of windows/firebase-config.json)"; exit 1; }
+          printf '%s' "$FIREBASE_WEB_CONFIG" > windows/firebase-config.json
+      - name: Installer
+        working-directory: windows
+        run: npm run dist
+      - name: Install it, then click through the installed app against the Firebase emulators
+        shell: pwsh
+        run: |
+          $setup = (Get-ChildItem windows\dist\Tomatime-Setup-*.exe).FullName
+          Start-Process -Wait $setup -ArgumentList '/S'
+          $exe = "$env:LOCALAPPDATA\Programs\Tomatime\Tomatime.exe"
+          if (!(Test-Path $exe)) { throw "not installed: $exe" }
+          $shots = "$env:GITHUB_WORKSPACE\shots"
+          cd firebase
+          npm ci --no-audit --no-fund
+          npx firebase emulators:exec --project demo-tomatime --only auth,firestore "`"$exe`" --emulator --fast --selftest --visible --snap=`"$shots`""
+          if ($LASTEXITCODE -ne 0) { throw "self-test failed" }
+          Get-Content "$shots\selftest.log"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: tomatime-windows
+          path: |
+            windows/dist/Tomatime-Setup-*.exe
+            shots/

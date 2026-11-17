@@ -8,3 +8,5 @@ node_modules/
 firebase/*.log
 GoogleService-Info.plist
 firebase/*-debug.log
+windows/firebase-config.json
+windows/dist/

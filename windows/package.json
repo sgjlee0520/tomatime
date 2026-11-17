@@ -1,0 +1,47 @@
+{
+  "name": "tomatime",
+  "productName": "Tomatime",
+  "version": "1.2.3",
+  "description": "A tomato focus timer for studying with other people.",
+  "author": "Songgun Lee",
+  "license": "MIT",
+  "private": true,
+  "type": "module",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "test": "node --test rules.test.js",
+    "test:live": "node --test core.test.js",
+    "dist": "electron-builder --win nsis --x64 --publish never"
+  },
+  "dependencies": {
+    "@firebase/app": "0.16.5",
+    "@firebase/auth": "1.13.9",
+    "@firebase/firestore": "4.19.1"
+  },
+  "devDependencies": {
+    "electron": "^45.0.0",
+    "electron-builder": "^26.0.0"
+  },
+  "build": {
+    "appId": "com.sgjlee.tomatime",
+    "productName": "Tomatime",
+    "files": [
+      "*.js",
+      "*.cjs",
+      "ui/**",
+      "assets/**",
+      "firebase-config.json",
+      "!*.test.js",
+      "!**/*.{map,d.ts,md,markdown}"
+    ],
+    "win": {
+      "icon": "assets/icon.png"
+    },
+    "nsis": {
+      "oneClick": true,
+      "perMachine": false,
+      "artifactName": "Tomatime-Setup-${version}.exe"
+    }
+  }
+}
