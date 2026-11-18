@@ -3,9 +3,9 @@ import sys
 
 from asc import api
 
-MAC_VERSION = "8fde81e1-bdf8-4000-aa2d-888f30c3e2da"
-LOC = "a043eb99-8b65-41bc-999f-88b16da6ddfd"      # en-US
-REVIEW = "9c717bdc-587e-4c62-92a6-1d18a1710f1f"
+MAC_VERSION = "8f14a321-c665-47f2-939f-c2773c55af23"
+LOC = "12808a24-f8ed-4b0a-8412-55e594fe0d48"      # en-US
+REVIEW = "b165c54b-b4d7-4d4e-aa28-e1d4ee1217a1"
 
 PROMO = ("Focus together. Start tomatoes at the same second as your study group, see who's focusing right now, "
          "and keep one timer on your Mac, iPhone and Apple Watch.")
