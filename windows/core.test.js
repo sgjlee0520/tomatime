@@ -196,7 +196,7 @@ test('Exam mode in a group: breaks start by themselves, the plan sets each tomat
   assert.equal(pc.store.sessions[gid].round, 2);
   assert.equal(pc.shown.done, null, 'the break screen closed');
   await until('done', () => [owner, pc].every((d) => d.shown.done?.exam?.done), 12000);
-  assert.equal(pc.shown.done.exam.title, 'Exam mode done!');
+  assert.equal(pc.shown.done.exam.title, '📝 Exam mode done!');
   assert.match(pc.shown.done.exam.sub, /Go take a walk\.$/);
   await sleep(300);
   assert.deepEqual(pc.store.sessions[gid].nextJoined, [], 'no next round');

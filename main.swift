@@ -277,7 +277,7 @@ final class OverlayWindow: NSPanel {
     var tierIndex = min(UserDefaults.standard.object(forKey: "tier") as? Int ?? 1, tiers.count - 1)
     var custom: Tier?  // typed-in length; picking a tier clears it
     var exam: ExamRun?
-    let examItem = NSMenuItem(title: "Exam mode", action: nil, keyEquivalent: "")
+    let examItem = NSMenuItem(title: examName, action: nil, keyEquivalent: "")
     let examStartItem = NSMenuItem(title: "Start", action: #selector(examTapped), keyEquivalent: "")
     var tier: Tier {
         group.tier ?? exam.map { tomatoTier(tomatoName($0.plan[2 * $0.block]), $0.plan[2 * $0.block]) } ?? custom ?? tiers[tierIndex]
@@ -544,7 +544,7 @@ final class OverlayWindow: NSPanel {
          "OK", #selector(dismissOverlay), "Leave Exam mode")
     }
     func examDoneScreen() -> ExamScreen {
-        ("Exam mode done!", "\(todayText()). \(examDoneText)", "Done", #selector(resetTapped), nil)
+        ("\(examName) done!", "\(todayText()). \(examDoneText)", "Done", #selector(resetTapped), nil)
     }
 
     // --overlay-shots <folder>: pictures of every red screen, drawn without showing anything (to check the layouts).
@@ -657,7 +657,7 @@ final class OverlayWindow: NSPanel {
         tierItems.forEach { $0.state = exam == nil && custom == nil && $0.tag == tierIndex ? .on : .off }
         customItem.state = custom == nil || exam != nil ? .off : .on
         examItem.state = exam == nil ? .off : .on
-        examItem.title = exam.map { "Exam mode · tomato \($0.block + 1) of \(examTomatoes($0.plan).count)" } ?? "Exam mode"
+        examItem.title = exam.map { "\(examName) · tomato \($0.block + 1) of \(examTomatoes($0.plan).count)" } ?? examName
         examStartItem.title = exam == nil ? "Start · \(examText(examPlan))" : "Stop Exam mode"
         customItem.title = custom.map { "Custom tomato · \(Int($0.minutes)) min…" } ?? "Custom tomato…"
         customItem.image = tomato(custom?.color ?? .systemGray, size: 16)

@@ -3,7 +3,7 @@
 // core.test.js can run it in plain Node.
 import { tiers, tierColor, maxFocusMinutes, countdownSeconds, groupBreakMinutes, dayKey, wholeMinutes, sessionPhase,
   sessionEnd, nextRoundStart, otherDeviceHasIt, countdownMode, idleTimer, sameTimer, sameStatus, breakAfter, nextTomato,
-  roundFix, canResize, tomatoName, examTomatoes, examText, examBreakText, examDoneText, recommendedExamPlan } from './rules.js';
+  roundFix, canResize, tomatoName, examTomatoes, examText, examBreakText, examDoneText, examName, recommendedExamPlan } from './rules.js';
 
 // A tomato of any length: a typed one takes the color of the biggest of the four it reaches.
 const tomatoTier = (name, minutes) => ({ name, minutes, color: tierColor(name, minutes) });
@@ -135,7 +135,7 @@ export class Core {
   examBlockEnded() {
     const breakScreen = (k, n, b, next) => ({ title: `Tomato ${k} of ${n} done!`,
       sub: `${b} min break, then a ${next} min tomato.\n${examBreakText(b)}`, ok: 'OK', leave: 'Leave Exam mode' });
-    const doneScreen = { title: 'Exam mode done!', sub: `${this.todayText()}. ${examDoneText}`, ok: 'Done', done: true };
+    const doneScreen = { title: `${examName} done!`, sub: `${this.todayText()}. ${examDoneText}`, ok: 'Done', done: true };
     const { gid, sid } = this.group, s = gid && this.store.sessions[gid];
     if (s && s.id === sid && s.plan.length) {
       const b = breakAfter(s);
@@ -320,7 +320,7 @@ export class Core {
     const who = s.startedBy === me ? 'You' : s.starterName;
     const what = tomatoText(s.tierName, s.minutes), n = examTomatoes(s.plan).length;
     const title = !s.plan.length || s.round > n ? (s.round === 1 ? `${who} started a 🍅 ${what}` : `next group 🍅 ${what}`)
-      : s.round === 1 ? `${who} started Exam mode · ${examText(s.plan)}` : `Exam mode ${s.round} of ${n} · 🍅 ${what}`;
+      : s.round === 1 ? `${who} started ${examName} · ${examText(s.plan)}` : `${examName} ${s.round} of ${n} · 🍅 ${what}`;
     this.ui.closeCountdown();
     this.group.showing = { gid: g.id, sid: s.id };
     const [joined, waiting] = this.joinedNames(g, s);

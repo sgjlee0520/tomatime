@@ -132,6 +132,7 @@ func sessionPhase(_ s: GroupSession, now: Date) -> SessionPhase {
 // tomato second (while fresh, not last), breaks that grow, one of 20 minutes, no phone in breaks, a walk at the end.
 let recommendedExamPlan: [Double] = [25, 8, 60, 10, 45, 20, 45]
 let examDoneText = "Go take a walk."
+let examName = "📝 Exam mode"  // how menus, the countdown and the red screen name it
 func examBreakText(_ minutes: Double) -> String {
     minutes >= 15 ? "Leave your desk and walk, outside if you can. Phone stays in your pocket."
                   : "Stand up, stretch, drink some water. Leave your phone alone."

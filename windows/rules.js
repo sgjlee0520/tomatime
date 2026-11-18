@@ -89,6 +89,7 @@ export const sessionEnd = (s) => s.startAt + s.minutes * 60000;
 // The recommended one and the studies behind it: docs/exam-mode-science.md.
 export const recommendedExamPlan = [25, 8, 60, 10, 45, 20, 45];
 export const examDoneText = 'Go take a walk.';
+export const examName = '📝 Exam mode';  // how menus, the countdown and the red screen name it
 export const examBreakText = (minutes) => minutes >= 15
   ? 'Leave your desk and walk, outside if you can. Phone stays in your pocket.'
   : 'Stand up, stretch, drink some water. Leave your phone alone.';

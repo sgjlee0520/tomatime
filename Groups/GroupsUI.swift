@@ -78,7 +78,7 @@ extension App {
         let who = s.startedBy == store.uid ? "You" : s.starterName
         let what = tomatoText(s.tierName, s.minutes), n = examTomatoes(s.plan).count
         let title = s.round > max(n, 1) || s.plan.isEmpty ? (s.round == 1 ? "\(who) started a 🍅 \(what)" : "next group 🍅 \(what)")
-            : s.round == 1 ? "\(who) started Exam mode · \(examText(s.plan))" : "Exam mode \(s.round) of \(n) · 🍅 \(what)"
+            : s.round == 1 ? "\(who) started \(examName) · \(examText(s.plan))" : "\(examName) \(s.round) of \(n) · 🍅 \(what)"
         countdown?.close()
         group.showing = (g.id, s.id)
         countdown = Countdown(title: "\(g.name): \(title)",
@@ -289,7 +289,7 @@ extension App {
         case .start:  // any tomato a solo session can be: the four, or a typed length; or Exam mode
             let start = tomatoChoices("Start group tomato", #selector(startGroupTapped), g.id)
             start.submenu?.addItem(.separator())
-            start.submenu?.addItem(groupItem("Exam mode · \(examText(examPlan))", #selector(startGroupExamTapped), g.id))
+            start.submenu?.addItem(groupItem("\(examName) · \(examText(examPlan))", #selector(startGroupExamTapped), g.id))
             return start
         case .starting: return info("Group tomato starting…")
         case .joinCountdown: return join("Group tomato starting — Join")
@@ -332,7 +332,7 @@ extension App {
     func examNote(_ s: GroupSession?) -> String {
         guard let s, !s.plan.isEmpty else { return "" }
         let k = s.round + (sessionPhase(s, now: Date()) == .over ? 1 : 0), n = examTomatoes(s.plan).count
-        return k <= n ? " · Exam mode \(k) of \(n)" : ""
+        return k <= n ? " · \(examName) \(k) of \(n)" : ""
     }
 
     func groupsItem() -> NSMenuItem {

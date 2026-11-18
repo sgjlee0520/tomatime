@@ -14,7 +14,7 @@ import { Core, tomatoText } from './core.js';
 import { tomatoBitmap, iconText } from './icon.js';
 import { signInURL, waitForToken, newNonce } from './apple.js';
 import { tiers, maxFocusMinutes, maxGroupSize, GroupError, normalizeCode, clock, effectiveState, statusText,
-  friendsFocusing, sessionMenu, weeklyRanking, nextTomato, examTomatoes, examText, parseExamPlan, recommendedExamPlan } from './rules.js';
+  friendsFocusing, sessionMenu, weeklyRanking, nextTomato, examTomatoes, examText, examName, parseExamPlan, recommendedExamPlan } from './rules.js';
 
 const here = import.meta.dirname, flag = (name) => process.argv.includes(name);
 const emulator = flag('--emulator'), fast = flag('--fast');
@@ -108,7 +108,7 @@ function menuTemplate() {
       { type: 'radio', checked: !core.exam && !core.custom && i === core.tierIndex })),
     item(core.custom ? `Custom tomato · ${core.custom.minutes} min…` : 'Custom tomato…', customTomato,
       { type: 'radio', checked: !!core.custom && !core.exam }),
-    { label: core.exam ? `Exam mode · tomato ${core.exam.block + 1} of ${examTomatoes(core.exam.plan).length}` : 'Exam mode', submenu: [
+    { label: core.exam ? `${examName} · tomato ${core.exam.block + 1} of ${examTomatoes(core.exam.plan).length}` : examName, submenu: [
       item(core.exam ? 'Stop Exam mode' : `Start · ${examText(core.examPlan)}`, () => core.examTapped()),
       item('Change the Plan…', editExam)] },
     line,
@@ -152,12 +152,12 @@ function sessionItem(g, now) {
     { label: 'Custom tomato…', click: () => pick() }] });
   const change = (name, minutes) => changeGroup(g, name, minutes);
   const k = s && s.round + (menu.kind === 'onBreak' ? 1 : 0), n = s ? examTomatoes(s.plan).length : 0;
-  const exam = s?.plan.length ? (k <= n ? ` · Exam mode ${k} of ${n}` : ' ') : '';  // ' ': an Exam mode an older app carried on
+  const exam = s?.plan.length ? (k <= n ? ` · ${examName} ${k} of ${n}` : ' ') : '';  // ' ': an Exam mode an older app carried on
   switch (menu.kind) {
     case 'start': {  // any tomato a solo session can be; or Exam mode
       const start = choices('Start group tomato', (name, minutes) => startGroup(g, name, minutes));
       start.submenu.push({ type: 'separator' },
-        { label: `Exam mode · ${examText(core.examPlan)}`, click: () => groupTask(() => core.startGroupExam(g.id)) });
+        { label: `${examName} · ${examText(core.examPlan)}`, click: () => groupTask(() => core.startGroupExam(g.id)) });
       return start;
     }
     case 'starting': return info('Group tomato starting…');
